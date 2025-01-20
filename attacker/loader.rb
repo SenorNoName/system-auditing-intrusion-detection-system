@@ -25,7 +25,7 @@ print_status("Loading new script #{script}.rb")
 load "/usr/share/metasploit-framework/scripts/meterpreter/custom/#{script}.rb"
 
 # Iterate 500 times
-2.times do |i|
+500.times do |i|
 print_status("Collecting data for #{script}.rb, iteration: #{i + 1}/500")
 
 # Define the path where the pcap file will be saved on the victim machine
