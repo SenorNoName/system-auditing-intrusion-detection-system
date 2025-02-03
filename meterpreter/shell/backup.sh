@@ -1,33 +1,45 @@
 #!/bin/bash
 
-# Define the source directory to compress (ensure this path is correct)
-SOURCE_DIR="/home/kali/Documents"
-
-# Define the backup file path
-BACKUP_FILE="/tmp/data_backup.tar.gz"
+# Define the base directory
+BASE_DIR="/home/kali/Documents"
 
 # Remote server details
-REMOTE_USER="user"
-REMOTE_HOST="remote-linux"
-REMOTE_PATH="/tmp/"
+REMOTE_USER="kali"
+REMOTE_HOST="192.168.0.222"
+REMOTE_PATH="/home/kali/Downloads"
 
-# Ensure the source directory exists
-if [ ! -d "$SOURCE_DIR" ]; then
-    echo "Source directory $SOURCE_DIR does not exist. Exiting."
+# Ensure the base directory exists
+if [ ! -d "$BASE_DIR" ]; then
+    echo "Base directory $BASE_DIR does not exist. Exiting."
     exit 1
 fi
 
-# Compress the specified directory only
-echo "Compressing files from $SOURCE_DIR into $BACKUP_FILE..."
-tar -czf "$BACKUP_FILE" -C "$(dirname "$SOURCE_DIR")" "$(basename "$SOURCE_DIR")"
+# Get a list of directories within BASE_DIR and choose one at random
+DIR_LIST=("$BASE_DIR"/*/)
+if [ ${#DIR_LIST[@]} -eq 0 ]; then
+    echo "No directories found in $BASE_DIR. Exiting."
+    exit 1
+fi
 
-# Transfer the compressed file to the remote server
-echo "Transferring $BACKUP_FILE to $REMOTE_USER@$REMOTE_HOST:$REMOTE_PATH..."
-scp "$BACKUP_FILE" "$REMOTE_USER@$REMOTE_HOST:$REMOTE_PATH"
+RANDOM_DIR="${DIR_LIST[RANDOM % ${#DIR_LIST[@]}]}"
+RANDOM_DIR_NAME=$(basename "$RANDOM_DIR")
+
+# Define the backup file path
+BACKUP_FILE="/tmp/${RANDOM_DIR_NAME}_backup.tar.gz"
+
+# Compress the selected directory
+#echo "Compressing files from $RANDOM_DIR into $BACKUP_FILE..."
+tar -czf "$BACKUP_FILE" -C "$BASE_DIR" "$RANDOM_DIR_NAME"
+
+# Transfer the compressed file to the remote server using sshpass
+#echo "Transferring $BACKUP_FILE to $REMOTE_USER@$REMOTE_HOST:$REMOTE_PATH..."
+sudo -u kali scp "$BACKUP_FILE" "$REMOTE_USER@$REMOTE_HOST:$REMOTE_PATH"
 
 # Completion message
-if [ $? -eq 0 ]; then
-    echo "Backup and transfer completed successfully."
-else
-    echo "Backup or transfer failed."
-fi
+#if [ $? -eq 0 ]; then
+    #echo "Backup and transfer of $RANDOM_DIR completed successfully."
+#else
+    #echo "Backup or transfer failed."
+#fi
+
+echo $BACKUP_FILE
