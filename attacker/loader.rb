@@ -3,14 +3,10 @@ require 'msf/core'
 
 # Array of scripts in the "custom/" directory
 scripts = [
-  "download", 
-  "keylogger", 
-  "ransomware", 
-  "credentials", 
-  "persistence", 
-  "port_scanner", 
-  "cryptomining", 
-  "kill", 
+  "keylogger",
+  "ransomware",
+  "cryptomining",
+  "kill",
   "exfiltration"
 ]
 
@@ -25,7 +21,7 @@ print_status("Loading new script #{script}.rb")
 load "/usr/share/metasploit-framework/scripts/meterpreter/custom/#{script}.rb"
 
 # Iterate 500 times
-500.times do |i|
+10.times do |i|
 print_status("Collecting data for #{script}.rb, iteration: #{i + 1}/500")
 
 # Define the path where the pcap file will be saved on the victim machine
