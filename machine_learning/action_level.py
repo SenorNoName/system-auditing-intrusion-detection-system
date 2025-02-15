@@ -22,34 +22,21 @@ val_losses = []
 
 # Dataset Class
 class SVGPCAPDataset(Dataset):
-    def __init__(self, labels_csv, svg_dir, pcap_dir, augment=False, noise_scale=0.1, drop_prob=0.1, dup_prob=0.1, time_noise_scale=0.01):
-        """
-        Initialize the dataset.
-        :param labels_csv: Path to the CSV file containing labels.
-        :param svg_dir: Directory containing SVG files.
-        :param pcap_dir: Directory containing PCAP files.
-        :param augment: Whether to apply on-the-fly augmentation.
-        :param noise_scale: Scale of the noise for feature perturbation.
-        :param drop_prob: Probability of dropping a packet.
-        :param dup_prob: Probability of duplicating a packet.
-        :param time_noise_scale: Scale of timestamp noise.
-        """
+    def __init__(self, labels_csv, svg_dir, pcap_dir, process_to_index=None, augment=False, noise_scale=0.1, drop_prob=0.1, dup_prob=0.1, time_noise_scale=0.01):
         self.data = []
         self.svg_dir = svg_dir
         self.pcap_dir = pcap_dir
-        self.process_to_index = self.extract_unique_processes(svg_dir)
+        self.process_to_index = process_to_index if process_to_index is not None else self.extract_unique_processes(svg_dir)
         self.ip_to_index = {}  # Mapping for IP addresses
-        self.augment = augment  # Whether to apply augmentation
-        self.noise_scale = noise_scale  # Scale of the noise for feature perturbation
-        self.drop_prob = drop_prob  # Probability of dropping a packet
-        self.dup_prob = dup_prob  # Probability of duplicating a packet
-        self.time_noise_scale = time_noise_scale  # Scale of timestamp noise
+        self.augment = augment
+        self.noise_scale = noise_scale
+        self.drop_prob = drop_prob
+        self.dup_prob = dup_prob
+        self.time_noise_scale = time_noise_scale
 
         with open(labels_csv, 'r') as f:
             for line in f.readlines()[1:]:  # Skip header
                 svg_file, pcap_file, origin_ip, target_processes = line.strip().split(',')
-
-                if args.verbose: print(f"Processing {svg_file} and {pcap_file}")
 
                 # Split target processes into a list
                 target_processes_list = target_processes.split(';')
@@ -72,7 +59,7 @@ class SVGPCAPDataset(Dataset):
     def get_ip_index(self, ip):
         return self.ip_to_index.get(ip, -1)  # Return -1 if IP is not found
 
-    def extract_unique_processes(self, svg_dir):
+    def extract_unique_processes(svg_dir):
         unique_processes = set()
         for svg_file in os.listdir(svg_dir):
             if svg_file.endswith(".svg"):
@@ -88,6 +75,7 @@ class SVGPCAPDataset(Dataset):
                 elapsed_time = time.time() - start_time
                 print(f"Elapsed time for extracting processes for file {svg_file}: {elapsed_time:.2f} seconds")
         return {process: idx for idx, process in enumerate(unique_processes)}
+
 
     def __getitem__(self, idx):
         svg_file, pcap_file, origin_ip, target_process_vector = self.data[idx]
@@ -256,14 +244,15 @@ class SVGPCAPPredictionModel(nn.Module):
 
 # Training and Validation Loop
 def train_model():
+    process_to_index = SVGPCAPDataset.extract_unique_processes('data/svg')
     # Create datasets with and without augmentation
     start_time = time.time()
-    train_dataset = SVGPCAPDataset('data/labels.csv', 'data/svg', 'data/pcap', augment=True, noise_scale=0.1)
+    train_dataset = SVGPCAPDataset('data/labels.csv', 'data/svg', 'data/pcap', process_to_index=process_to_index, augment=True, noise_scale=0.1)
     elapsed_time = time.time() - start_time
     if args.verbose: print(f"Elapsed time for loading training dataset: {elapsed_time:.2f} seconds")
 
     start_time = time.time()
-    val_dataset = SVGPCAPDataset('data/labels.csv', 'data/svg', 'data/pcap', augment=False)
+    val_dataset = SVGPCAPDataset('data/labels.csv', 'data/svg', 'data/pcap', process_to_index=process_to_index, augment=False)
     elapsed_time = time.time() - start_time
     if args.verbose: print(f"Elapsed time for loading training dataset: {elapsed_time:.2f} seconds")
     
