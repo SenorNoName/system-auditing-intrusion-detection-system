@@ -5,7 +5,7 @@ BASE_DIR="/home/kali/Documents"
 
 # Remote server details
 REMOTE_USER="kali"
-REMOTE_HOST="192.168.0.222"
+REMOTE_HOST="192.168.0.15"
 REMOTE_PATH="/home/kali/Downloads"
 
 # Ensure the base directory exists
@@ -33,7 +33,7 @@ tar -czf "$BACKUP_FILE" -C "$BASE_DIR" "$RANDOM_DIR_NAME"
 
 # Transfer the compressed file to the remote server using sshpass
 #echo "Transferring $BACKUP_FILE to $REMOTE_USER@$REMOTE_HOST:$REMOTE_PATH..."
-sudo -u kali scp "$BACKUP_FILE" "$REMOTE_USER@$REMOTE_HOST:$REMOTE_PATH"
+sshpass -p "kali" scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "$BACKUP_FILE" "$REMOTE_USER@$REMOTE_HOST:$REMOTE_PATH"
 
 # Completion message
 #if [ $? -eq 0 ]; then

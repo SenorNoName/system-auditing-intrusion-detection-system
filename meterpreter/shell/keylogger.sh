@@ -22,7 +22,7 @@ RANDOM_KEYS=("KEY_A" "KEY_B" "KEY_C" "KEY_D" "KEY_E" "KEY_F" "KEY_G"
 # Function to generate and log fake keystrokes concurrently using evemu-event
 generate_fake_keystrokes() {
     local device_path="$1"
-    end_time=$((SECONDS + 5))  # Run for 5 seconds
+    end_time=$((SECONDS + 2))  # Run for 5 seconds
     while [ $SECONDS -lt $end_time ]; do
         random_key=${RANDOM_KEYS[$RANDOM % ${#RANDOM_KEYS[@]}]}
         
