@@ -33,3 +33,20 @@ print_status("Cleaning up temporary files on the victim machine...")
 cmd_exec("rm -f #{remote_script} #{output}")
 print_good("Temporary files cleaned up.")
 #end
+
+# Step 5: Clean up the attacker machine Downloads
+# Path to the Downloads directory (update if needed)
+downloads_dir = File.expand_path("/home/kali/Downloads")
+
+# Get all .tar.gz files in the directory
+tar_gz_files = Dir.glob(File.join(downloads_dir, "*.tar.gz"))
+
+# Delete each .tar.gz file
+tar_gz_files.each do |file|
+  begin
+    File.delete(file)
+    puts "Deleted: #{file}"
+  rescue => e
+    puts "Error deleting #{file}: #{e.message}"
+  end
+end
