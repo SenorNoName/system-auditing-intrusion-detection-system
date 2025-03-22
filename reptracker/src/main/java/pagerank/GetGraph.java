@@ -617,35 +617,19 @@ public class GetGraph {
         iter.exportGraph(file);
     }
 
-
-
-
-
-
-
-    /*public static void main(String[] args) throws Exception{
-        //String[] localIP={"129.22.21.193"};
-        String[] localIP = {"10.0.2.15"};
-        //GetGraph test = new GetGraph("logs/case1.txt",localIP);
-        //test.GenerateGraph();
-        //IterateGraph iterateGraph = new IterateGraph(test.jg);
-        //iterateGraph.bfs("/home/feishao/sysrep_test_temp/case7/malicious.py");
-        //test.backTrackWithHopCount("/usr/bin/nodejs.dpkg-new","File",5);
-        //test.bfsWithHopCount("129.22.151.208","Network",2);
-        //test.exportGraph("graphs/case1");
-        for (int i = 1; i <= 500; i++) {
-            GetGraph test = new GetGraph(String.format("flightsim_sysdig/%d.txt", i), localIP);
-            test.GenerateGraph();
-            test.exportGraph(String.format("graphs/flightsim/%d", i));
-        }
-    }
-
-}*/
-
     public static void main(String[] args) throws Exception {
-        String[] localIP = {"192.168.0.28"};
+        if (args.length < 3) {
+            System.err.println("Usage: java pagerank.GetGraph <ipaddr> <source> <destination>");
+            System.exit(1);
+        }
+    
+        String ipaddr = args[0];
+        String source = args[1];
+        String destination = args[2];
+
+        String[] localIP = {ipaddr};
         List<String> failedCases = new ArrayList<>(); // List to store failed file names
-        File folder = new File("powerset/sysdig");
+        File folder = new File(source);
         File[] listOfFiles = folder.listFiles();
 
         if (listOfFiles != null) {
@@ -654,7 +638,7 @@ public class GetGraph {
                     try {
                         GetGraph test = new GetGraph(file.getPath(), localIP);
                         test.GenerateGraph();
-                        test.exportGraph("powerset_dot/" + file.getName().replace(".txt", ""));
+                        test.exportGraph(destination + file.getName().replace(".txt", ""));
                         System.out.println("Completed " + file.getName());
                     } catch (Exception e) {
                         System.err.println("Failed to process file: " + file.getName());
