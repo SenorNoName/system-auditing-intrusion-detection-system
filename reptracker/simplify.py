@@ -1,45 +1,38 @@
 """
-This script simplifies .dot graph files by performing various transformations
-to make the graphs more concise and easier to interpret. The script processes
-all .dot files in a specified input directory and saves the simplified versions
-to an output directory.
+This script simplifies .dot graph files by performing various operations such as 
+removing duplicate edges, grouping similar nodes, collapsing nodes with single 
+connections, and removing unconnected nodes. The simplified graph is saved to 
+an output file.
 Functions:
     simplify_dot(input_file, output_file):
         Simplifies a .dot graph file by:
-        1. Removing duplicate edges and consolidating them with labels indicating
-           the number of connections.
-        2. Grouping similar nodes into subgraphs based on their types.
-        3. Removing unnecessary labels from nodes.
-        4. Collapsing nodes with single incoming and outgoing connections into
-           a single edge.
-        5. Removing unconnected nodes from the graph.
-        6. Simplifying edge labels by removing redundant information.
-    Parameters:
-        input_file (str): Path to the input .dot file.
-        output_file (str): Path to save the simplified .dot file.
-Directories:
-    input_directory: The directory containing the input .dot files to be processed.
-    output_directory: The directory where the simplified .dot files will be saved.
+        - Removing duplicate edges and consolidating them with labels indicating the count.
+        - Grouping similar nodes into subgraphs based on their type.
+        - Removing unnecessary labels from nodes.
+        - Collapsing nodes with single incoming and outgoing connections into a single edge.
+        - Removing unconnected nodes from the graph.
+        - Simplifying edge labels by removing unnecessary information.
+Command Line Arguments:
+    input_directory (str): Directory containing the input .dot files to be simplified.
+    output_directory (str): Directory where the simplified .dot files will be saved.
 Usage:
-    - Place the .dot files to be simplified in the `powerset_dot` directory.
-    - Run the script to process all .dot files in the directory.
-    - Simplified .dot files will be saved in the `clean_powerset` directory.
-Dependencies:
-    - pydot: A Python interface to Graphviz's Dot language.
-    - collections.defaultdict: For counting and grouping elements.
-    - os: For file and directory operations.
+    python simplify.py <input_directory> <output_directory>
 Example:
-    To simplify all .dot files in the `powerset_dot` directory and save the
-    results in the `clean_powerset` directory, simply run the script.
+    python simplify.py ./input_dot_files ./output_dot_files
+Dependencies:
+    - pydot: For parsing and manipulating .dot graph files.
+    - argparse: For parsing command-line arguments.
+    - os: For file and directory operations.
+    - collections.defaultdict: For managing edge and node group counts.
 Notes:
-    - Ensure that Graphviz is installed and properly configured for pydot to work.
-    - The script assumes that node labels follow a specific format for grouping
-      and collapsing operations.
+    - The script ensures that the output directory exists before saving the simplified files.
+    - Only files with a ".dot" extension in the input directory are processed.
 """
 
 import pydot
 from collections import defaultdict
 import os
+import argparse
 
 def simplify_dot(input_file, output_file):
     # Load the graph from the input .dot file
@@ -140,9 +133,15 @@ def simplify_dot(input_file, output_file):
 
     print(f"Simplified graph saved to {output_file}")
 
+# Parse command line arguments
+parser = argparse.ArgumentParser(description="Simplify .dot graph files.")
+parser.add_argument("input_directory", type=str, help="Directory containing .dot files")
+parser.add_argument("output_directory", type=str, help="Directory to save simplified .dot files")
+args = parser.parse_args()
+
 # Directory containing .dot files
-input_directory = "powerset_dot"
-output_directory = "clean_powerset"
+input_directory = args.input_directory
+output_directory = args.output_directory
 
 # Ensure the output directory exists
 os.makedirs(output_directory, exist_ok=True)

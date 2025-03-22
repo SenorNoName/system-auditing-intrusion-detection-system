@@ -638,7 +638,7 @@ public class GetGraph {
                     try {
                         GetGraph test = new GetGraph(file.getPath(), localIP);
                         test.GenerateGraph();
-                        test.exportGraph(destination + file.getName().replace(".txt", ""));
+                        test.exportGraph(destination + "/" + file.getName().replace(".txt", ""));
                         System.out.println("Completed " + file.getName());
                     } catch (Exception e) {
                         System.err.println("Failed to process file: " + file.getName());
