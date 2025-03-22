@@ -1,3 +1,48 @@
+"""
+This script implements a Graph Neural Network (GNN) model for combining graph-based features from SVG files 
+and network traffic features from PCAP files for classification tasks. The script includes the following components:
+1. **Imports**:
+    - Necessary libraries for graph processing, machine learning, and data manipulation.
+    - PyTorch Geometric for graph-based operations.
+    - Scapy for PCAP file parsing.
+    - Dask for scalable data processing.
+2. **Custom Functions**:
+    - `custom_collate_fn`: A custom collate function for preparing batches of data for the DataLoader.
+    - `is_connected`: Checks if a graph is connected.
+    - `pad_node_features`: Pads node features to a fixed size.
+3. **Dataset Class**:
+    - `SVGPCAPDataset`: A PyTorch Dataset class for handling data that combines SVG and PCAP files. 
+      It includes methods for:
+        - Data augmentation and preprocessing.
+4. **Model Definition**:
+    - `GNNModel`: A Graph Neural Network model that combines graph-based features and PCAP features for classification tasks.
+    - `WeightedFocalLoss`: A custom implementation of the Weighted Focal Loss function for addressing class imbalance.
+5. **Training and Validation**:
+    - `train_model`: A function to train the GNN model using the preprocessed datasets.
+    - `validate_model`: A function to validate the model's performance on a validation dataset.
+6. **Main Execution**:
+    - The script trains the model and plots the training and validation losses.
+### Key Features:
+- **Graph Processing**: Uses PyTorch Geometric for graph-based operations such as graph convolution and pooling.
+- **PCAP Feature Extraction**: Extracts features from PCAP files using Scapy and applies data augmentation.
+- **Custom Loss Function**: Implements a Weighted Focal Loss to handle class imbalance.
+- **Data Augmentation**: Includes methods for augmenting both SVG and PCAP features.
+- **Threshold Tuning**: Tunes thresholds for process-level predictions to maximize F1 score.
+### Usage:
+- Ensure the required libraries are installed, including PyTorch, PyTorch Geometric, Scapy, and Dask.
+- Prepare the dataset by preprocessing SVG and PCAP files.
+- Run the script to train the model and evaluate its performance.
+### Dependencies:
+- PyTorch
+- PyTorch Geometric
+- Scapy
+- Dask
+- Matplotlib
+- scikit-learn
+### Notes:
+- The script assumes the existence of specific file paths and preprocessed data.
+"""
+
 import os
 import time
 import hashlib
@@ -145,7 +190,64 @@ val_losses = []
 
 # Dataset Class
 class SVGPCAPDataset(Dataset):
-    def __init__(self, split_file, svg_dir, pcap_dir, process_to_index=None, augment=False, noise_scale=0.1, drop_prob=0.1, dup_prob=0.1, time_noise_scale=0.1, preprocessed_dir=None):
+    """
+    SVGPCAPDataset is a PyTorch Dataset class designed to handle data that combines SVG (Scalable Vector Graphics) files 
+    and PCAP (Packet Capture) files. This dataset is particularly useful for tasks involving graph-based data from SVG files 
+    and network traffic data from PCAP files.
+    The class provides functionality for:
+    - Loading and preprocessing SVG and PCAP data.
+    - Extracting graph structures and features from SVG files.
+    - Extracting network traffic features from PCAP files.
+    - Applying data augmentation techniques to both SVG and PCAP data.
+    - Handling preprocessed data for faster loading and training.
+        data (list): A list to store dataset information, including file paths and labels.
+        drop_prob (float): Probability of dropping nodes or packets for augmentation.
+        dup_prob (float): Probability of duplicating nodes or packets for augmentation.
+        vectorizer (TfidfVectorizer): Vectorizer for text data in SVG files.
+        max_features (int): Maximum number of features across all graphs.
+    Methods:
+        __init__(file, svg_dir, pcap_dir, process_to_index=None, augment=False, noise_scale=0.1, drop_prob=0.1, 
+                 dup_prob=0.1, time_noise_scale=0.1, preprocessed_dir=None, preprocessed=False):
+            Initializes the dataset with the given parameters and loads data.
+        __len__():
+            Returns the number of data samples in the dataset.
+        __getitem__(idx):
+        get_ip_index(ip):
+            Retrieves the index of a given IP address.
+        collect_all_node_texts(svg_dir):
+            Collects all unique text elements from SVG files in the specified directory.
+        validate_graph(graph):
+            Validates the graph structure and ensures it is connected.
+        add_graph_features(graph):
+            Adds node degrees and centrality measures as features to the graph.
+        extract_unique_processes(svg_dir):
+            Extracts unique text elements from SVG files and maps them to unique indices.
+        extract_svg_graph(svg_path):
+            Extracts a graph from an SVG file and processes it into a PyTorch Geometric Data object.
+        extract_pcap_features(pcap_path):
+            Extracts enhanced features from a PCAP file, such as unique IPs, ports, payload sizes, and time intervals.
+        parse_connection(path_element):
+            Parses an SVG path element to extract source and target nodes of a connection.
+        parallel_extract_svg_graph(svg_files):
+            Extracts graphs from a list of SVG files in parallel using multiprocessing.
+        add_positional_encoding(graph):
+            Adds random positional encoding to node features in the graph.
+        preprocess_data(svg_files, pcap_files, svg_dir, pcap_dir, output_dir):
+        get_file_hash(file_path):
+        load_pcap_features(pcap_path):
+            Extracts basic features from a PCAP file, such as unique IPs, ports, and average payload size.
+        augment_svg_features(svg_features):
+            Augments SVG features by adding random Gaussian noise.
+        augment_pcap_features(pcap_features):
+            Augments PCAP features by simulating network conditions, such as scaling and adding noise.
+        augment_pcap_file(pcap_path):
+            Augments a PCAP file by applying random transformations to packets and extracts features.
+    Usage:
+        This dataset can be used in PyTorch DataLoader for training machine learning models that require both graph-based 
+        and network traffic data. It supports data augmentation and preprocessing for efficient training.
+    """
+
+    def __init__(self, file, svg_dir, pcap_dir, process_to_index=None, augment=False, noise_scale=0.1, drop_prob=0.1, dup_prob=0.1, time_noise_scale=0.1, preprocessed_dir=None, preprocessed=False):
         """
         Initialize the dataset with the given parameters.
         Args:
@@ -186,50 +288,48 @@ class SVGPCAPDataset(Dataset):
         self.time_noise_scale = time_noise_scale
         self.preprocessed_dir = preprocessed_dir
 
-        # Load the split
-        with open(split_file, 'r') as f:
-            self.files = [line.strip().split('\t') for line in f.readlines()]
+        if preprocessed:
+            # Load the split
+            with open(file, 'r') as f:
+                self.files = [line.strip().split('\t') for line in f.readlines()]
 
-        # Calculate the maximum number of features across all graphs
-        self.max_features = 0
-        for svg_file, _ in self.files:
-            graph = torch.load(os.path.join(self.svg_dir, svg_file), weights_only=False)
-            if graph.num_nodes > 0:
-                self.max_features = max(self.max_features, graph.x.size(1))
-        '''
-
-        # Ensure preprocessed_dir exists if provided
-        if self.preprocessed_dir is not None:
-            os.makedirs(self.preprocessed_dir, exist_ok=True)
-
-        # Initialize vectorizer
-        if preprocessed_dir and os.path.exists(os.path.join(preprocessed_dir, 'vectorizer.pkl')):
-            with open(os.path.join(preprocessed_dir, 'vectorizer.pkl'), 'rb') as f:
-                self.vectorizer = pickle.load(f)
+            # Calculate the maximum number of features across all graphs
+            self.max_features = 0
+            for svg_file, _ in self.files:
+                graph = torch.load(os.path.join(self.svg_dir, svg_file), weights_only=False)
+                if graph.num_nodes > 0:
+                    self.max_features = max(self.max_features, graph.x.size(1))
         else:
-            all_texts = self.collect_all_node_texts(svg_dir)
-            self.vectorizer = TfidfVectorizer().fit(all_texts)
+            # Ensure preprocessed_dir exists if provided
+            if self.preprocessed_dir is not None:
+                os.makedirs(self.preprocessed_dir, exist_ok=True)
 
-        # Load data
-        with open(labels_csv, 'r') as f:
-            for line in f.readlines()[1:]:  # Skip header
-                svg_file, pcap_file, origin_ip, target_processes = line.strip().split(',')
+            # Initialize vectorizer
+            if preprocessed_dir and os.path.exists(os.path.join(preprocessed_dir, 'vectorizer.pkl')):
+                with open(os.path.join(preprocessed_dir, 'vectorizer.pkl'), 'rb') as f:
+                    self.vectorizer = pickle.load(f)
+            else:
+                all_texts = self.collect_all_node_texts(svg_dir)
+                self.vectorizer = TfidfVectorizer().fit(all_texts)
 
-                # Split target processes into a list
-                target_processes_list = target_processes.split(';')
+            # Load data
+            with open(file, 'r') as f:
+                for line in f.readlines()[1:]:  # Skip header
+                    svg_file, pcap_file, origin_ip, target_processes = line.strip().split(',')
 
-                target_process_vector = set()
-                for process in target_processes_list:
-                    if process in self.process_to_index:
-                        target_process_vector.add(self.process_to_index[process])
+                    # Split target processes into a list
+                    target_processes_list = target_processes.split(';')
 
-                # Map IP address to an integer
-                if origin_ip not in self.ip_to_index:
-                    self.ip_to_index[origin_ip] = len(self.ip_to_index)
+                    target_process_vector = set()
+                    for process in target_processes_list:
+                        if process in self.process_to_index:
+                            target_process_vector.add(self.process_to_index[process])
 
-                self.data.append((svg_file, pcap_file, origin_ip, target_process_vector))
+                    # Map IP address to an integer
+                    if origin_ip not in self.ip_to_index:
+                        self.ip_to_index[origin_ip] = len(self.ip_to_index)
 
-        '''
+                    self.data.append((svg_file, pcap_file, origin_ip, target_process_vector))
                 
     def __len__(self):
         return len(self.files) # self.data
@@ -599,6 +699,35 @@ class SVGPCAPDataset(Dataset):
         return graph
 
     def preprocess_data(self, svg_files, pcap_files, svg_dir, pcap_dir, output_dir):
+        """
+        Preprocesses SVG and PCAP files, extracts features, and saves them in the specified output directory.
+        Args:
+            svg_files (list): List of SVG file names to process.
+            pcap_files (list): List of PCAP file names to process.
+            svg_dir (str): Directory containing the SVG files.
+            pcap_dir (str): Directory containing the PCAP files.
+            output_dir (str): Directory where the processed data and vectorizer will be saved.
+        Workflow:
+            1. Creates the output directory if it does not exist.
+            2. Processes each SVG file:
+                - Extracts graph data from the SVG file.
+                - Saves the graph data as a PyTorch tensor in the output directory.
+            3. Processes each PCAP file:
+                - Extracts features from the PCAP file.
+                - Saves the features as a PyTorch tensor in the output directory.
+            4. Saves the vectorizer object as a pickle file in the output directory.
+            5. Processes all PCAP files in the PCAP directory:
+                - Extracts features from each PCAP file.
+                - Saves the features as PyTorch tensors in a subdirectory named 'pcap' within the output directory.
+            6. Saves the vectorizer object again as a pickle file in the output directory.
+        Note:
+            - The method assumes the existence of `self.extract_svg_graph` and `self.extract_pcap_features` methods 
+              for extracting graph data and features, respectively.
+            - The `self.vectorizer` object is expected to be defined and initialized prior to calling this method.
+        Raises:
+            OSError: If there are issues creating directories or saving files.
+        """
+        
         os.makedirs(output_dir, exist_ok=True)
         
         # Process SVG files
@@ -632,7 +761,17 @@ class SVGPCAPDataset(Dataset):
         
 
     def get_file_hash(self, file_path):
-        """Generate a hash for a file to use as a cache key."""
+        """
+        Computes the MD5 hash of a file.
+        Args:
+            file_path (str): The path to the file for which the hash is to be computed.
+        Returns:
+            str: The hexadecimal MD5 hash of the file's contents.
+        Raises:
+            FileNotFoundError: If the specified file does not exist.
+            IOError: If there is an error reading the file.
+        """
+        
         hasher = hashlib.md5()
         with open(file_path, 'rb') as f:
             buf = f.read()
@@ -640,54 +779,23 @@ class SVGPCAPDataset(Dataset):
         return hasher.hexdigest()
 
     def __getitem__(self, idx):
-        '''
-        svg_file, pcap_file, origin_ip, target_process_vector = self.data[idx]
-        target_process_indices = sorted(target_process_vector)
-        
-        # Use cached data if available and preprocessed_dir is provided
-        if self.preprocessed_dir is not None:
-            cache_key = f"{self.get_file_hash(os.path.join(self.svg_dir, svg_file))}_{self.get_file_hash(os.path.join(self.pcap_dir, pcap_file))}"
-            cache_path = os.path.join(self.preprocessed_dir, f"{cache_key}.pt")
-            
-            if os.path.exists(cache_path):
-                svg_graph, pcap_features = torch.load(cache_path)
-            else:
-                # Extract SVG graph
-                svg_graph = self.extract_svg_graph(os.path.join(self.svg_dir, svg_file))
-                
-                # Load PCAP features
-                pcap_features = self.load_pcap_features(os.path.join(self.pcap_dir, pcap_file))
-                if self.augment:
-                    pcap_features = self.augment_pcap_features(pcap_features)
-                
-                # Convert to tensors
-                pcap_features = torch.tensor(pcap_features, dtype=torch.float32)
-                
-                # Cache the data
-                torch.save((svg_graph, pcap_features), cache_path)
-        else:
-            # Extract SVG graph
-            svg_graph = self.extract_svg_graph(os.path.join(self.svg_dir, svg_file))
-            
-            # Load PCAP features
-            pcap_features = self.load_pcap_features(os.path.join(self.pcap_dir, pcap_file))
-            if self.augment:
-                pcap_features = self.augment_pcap_features(pcap_features)
-            
-            # Convert to tensors
-            pcap_features = torch.tensor(pcap_features, dtype=torch.float32)
-        
-        target_process_indices = torch.tensor(sorted(target_process_vector), dtype=torch.long)
-        target_process_values = torch.ones_like(target_process_indices, dtype=torch.float32)
-        
-        return (
-            svg_graph,
-            pcap_features,
-            self.ip_to_index[origin_ip],  # Directly return index instead of IP string
-            target_process_indices,
-            target_process_values
-        )
-        '''
+        """
+        Retrieves and processes data for a given index.
+        Args:
+            idx (int): Index of the data to retrieve.
+        Returns:
+            tuple: A tuple containing the following elements:
+            - svg_graph (torch.Tensor): The processed SVG graph with padded node features.
+            - pcap_features (torch.Tensor): The processed PCAP features as a tensor.
+            - origin_ip (int): A placeholder for the origin IP index (replace with actual value if available).
+            - target_process_indices (torch.Tensor): A tensor containing indices of target processes.
+            - target_process_values (torch.Tensor): A tensor containing values corresponding to the target processes.
+        Notes:
+            - The SVG graph is loaded from a file and its node features are padded to a fixed size.
+            - The PCAP features are loaded from a file and converted to a tensor if necessary.
+            - Dummy labels are used for `origin_ip`, `target_process_indices`, and `target_process_values`.
+              Replace these with actual labels if available.
+        """
 
         svg_file, pcap_file = self.files[idx]
 
@@ -716,6 +824,22 @@ class SVGPCAPDataset(Dataset):
         )
 
     def load_pcap_features(self, pcap_path):
+        """
+        Extracts features from a given PCAP file.
+        This method processes a PCAP file to extract network traffic features such as
+        the number of unique source IPs, destination IPs, source ports, destination ports,
+        and the average payload size of TCP packets.
+        Args:
+            pcap_path (str): The file path to the PCAP file to be processed.
+        Returns:
+            list: A list of extracted features in the following order:
+            - Number of unique source IPs
+            - Number of unique destination IPs
+            - Number of unique source ports
+            - Number of unique destination ports
+            - Average payload size of TCP packets (0 if no TCP packets are present)
+        """
+
         packets = rdpcap(pcap_path)
         if len(packets) == 0:
             return [0, 0, 0, 0, 0]
@@ -743,20 +867,37 @@ class SVGPCAPDataset(Dataset):
     
     def augment_svg_features(self, svg_features):
         """
-        Apply augmentation to SVG features.
-        :param svg_features: List or array of SVG features.
-        :return: Augmented SVG features.
+        Augments the given SVG features by adding random noise.
+        This method perturbs the input SVG features by adding Gaussian noise
+        to each feature. The noise is generated with a mean of 0 and a standard
+        deviation defined by the `self.noise_scale` attribute.
+        Args:
+            svg_features (numpy.ndarray): A 1D array of SVG features to be augmented.
+        Returns:
+            numpy.ndarray: A 1D array of SVG features with added noise.
         """
+
         # Perturb SVG features with noise
         noise = np.random.normal(0, self.noise_scale, size=len(svg_features))
         return svg_features + noise
 
     def augment_pcap_features(self, pcap_features):
         """
-        Apply augmentation to PCAP features.
-        :param pcap_features: List or array of PCAP features.
-        :return: Augmented PCAP features.
+        Augments the given PCAP (Packet Capture) features by simulating network conditions.
+        This method applies random scaling and noise to specific features of the input
+        PCAP data to simulate variations in network conditions. The modifications include:
+        - Scaling the number of source IPs and destination IPs by a random factor.
+        - Adding Gaussian noise to the mean packet size.
+        Args:
+            pcap_features (list or np.ndarray): A list or array containing PCAP features.
+                Expected indices:
+                - Index 0: Number of source IPs.
+                - Index 1: Number of destination IPs.
+                - Index 4: Mean packet size.
+        Returns:
+            list or np.ndarray: The augmented PCAP features with simulated variations.
         """
+
         # Simulate network conditions
         pcap_features[0] *= np.random.uniform(0.8, 1.2)  # Randomly scale the number of source IPs
         pcap_features[1] *= np.random.uniform(0.8, 1.2)  # Randomly scale the number of destination IPs
@@ -765,10 +906,24 @@ class SVGPCAPDataset(Dataset):
 
     def augment_pcap_file(self, pcap_path):
         """
-        Apply network variations to a PCAP file.
-        :param pcap_path: Path to the input PCAP file.
-        :return: Augmented PCAP features.
+        Augments a PCAP file by applying random transformations to the packets and extracts features.
+        This method performs the following operations on the packets in the given PCAP file:
+        - Randomly drops packets based on a predefined probability (`self.drop_prob`).
+        - Randomly duplicates packets based on a predefined probability (`self.dup_prob`).
+        - Adds Gaussian noise to packet timestamps with a scale defined by `self.time_noise_scale`.
+        - Randomly reorders the packets.
+        After augmentation, the method extracts the following features from the packets:
+        - Total number of packets (`num_packets`).
+        - Mean packet size (`mean_packet_size`).
+        - Standard deviation of packet sizes (`std_packet_size`).
+        - Number of unique protocols in the packets (`unique_protocols`).
+        Args:
+            pcap_path (str): Path to the PCAP file to be augmented.
+        Returns:
+            list: A list of extracted feature values in the following order:
+            [num_packets, mean_packet_size, std_packet_size, unique_protocols].
         """
+
         packets = rdpcap(pcap_path)
         augmented_packets = []
 
@@ -805,7 +960,44 @@ class SVGPCAPDataset(Dataset):
 
 # Model Definition
 class GNNModel(nn.Module):
+    """
+    A Graph Neural Network (GNN) model that combines graph-based features and packet capture (PCAP) features
+    for classification tasks. The model uses a Graph Convolutional Network (GCN) for processing graph data
+    and a Convolutional Neural Network (CNN) for processing PCAP features.
+    Attributes:
+        conv1 (GCNConv): First graph convolutional layer.
+        conv2 (GCNConv): Second graph convolutional layer.
+        dropout (nn.Dropout): Dropout layer for regularization.
+        pcap_cnn (nn.Sequential): CNN module for processing PCAP features.
+        process_head (nn.Linear): Fully connected layer for process classification.
+        origin_head (nn.Linear): Fully connected layer for origin IP classification.
+    Methods:
+        __init__(svg_dim, pcap_dim, hidden_dim, num_processes, num_ips):
+            Initializes the GNNModel with the specified dimensions and parameters.
+        forward(graph_batch, pcap_features):
+            Performs a forward pass through the model, combining graph and PCAP features for classification.
+        pad_features(x, target_dim=1015):
+            Pads the input feature matrix to the specified target dimension if necessary.
+    """
+
     def __init__(self, svg_dim, pcap_dim, hidden_dim, num_processes, num_ips):
+        """
+        Initializes the GNN model with specified dimensions and layers.
+        Args:
+            svg_dim (int): The input feature dimension for the graph convolutional network (GCN).
+            pcap_dim (int): The input feature dimension for the packet capture (PCAP) data.
+            hidden_dim (int): The dimension of the hidden layers in the GCN and CNN.
+            num_processes (int): The number of output classes for the process classification head.
+            num_ips (int): The number of output classes for the origin IP classification head.
+        Attributes:
+            conv1 (GCNConv): The first graph convolutional layer.
+            conv2 (GCNConv): The second graph convolutional layer.
+            dropout (nn.Dropout): Dropout layer to prevent overfitting.
+            pcap_cnn (nn.Sequential): A 1D convolutional neural network for processing PCAP data.
+            process_head (nn.Linear): Fully connected layer for process classification.
+            origin_head (nn.Linear): Fully connected layer for origin IP classification.
+        """
+
         super().__init__()
         self.conv1 = GCNConv(svg_dim, hidden_dim)
         self.conv2 = GCNConv(hidden_dim, hidden_dim)
@@ -819,6 +1011,27 @@ class GNNModel(nn.Module):
         self.origin_head = nn.Linear(hidden_dim * 2, num_ips)
 
     def forward(self, graph_batch, pcap_features):
+        """
+        Forward pass of the model.
+        Args:
+            graph_batch (torch_geometric.data.Batch): A batch of graph data containing node features (`x`), 
+                edge indices (`edge_index`), and batch indices (`batch`).
+            pcap_features (torch.Tensor): A tensor containing features extracted from PCAP files, 
+                with shape (batch_size, num_features).
+        Returns:
+            Tuple[torch.Tensor, torch.Tensor]: A tuple containing two tensors:
+                - The output of the `origin_head` representing predictions for the origin task.
+                - The output of the `process_head` representing predictions for the process task.
+        Notes:
+            - The graph node features are padded to match the input dimension of the first convolutional layer.
+            - Two graph convolutional layers are applied to the graph data, followed by a global mean pooling operation 
+              to obtain a graph-level embedding.
+            - The PCAP features are processed using a 1D CNN and aggregated along the temporal dimension to obtain 
+              a PCAP-level embedding.
+            - The graph and PCAP embeddings are concatenated and passed through two separate heads (`origin_head` 
+              and `process_head`) for final predictions.
+        """
+
         graph_batch.x = self.pad_features(graph_batch.x, target_dim=self.conv1.in_channels)
 
         x = self.conv1(graph_batch.x, graph_batch.edge_index).relu()
@@ -834,26 +1047,80 @@ class GNNModel(nn.Module):
 
     def pad_features(self, x, target_dim=1015):
         """
-        Pads the feature matrix to the target dimension if necessary.
+        Pads the input tensor to a specified target dimension along the second axis.
         Args:
-            x (torch.Tensor): Input feature matrix.
-            target_dim (int): Desired feature size.
+            x (torch.Tensor): The input tensor of shape (batch_size, current_dim).
+            target_dim (int, optional): The desired dimension for the second axis. 
+                Defaults to 1015.
         Returns:
-            torch.Tensor: Padded feature matrix.
+            torch.Tensor: The padded tensor of shape (batch_size, target_dim) if 
+            padding is applied, otherwise the original tensor if no padding is needed.
         """
+
         if x.shape[1] < target_dim:
             pad_size = target_dim - x.shape[1]
             x = torch.cat([x, torch.zeros((x.shape[0], pad_size), device=x.device)], dim=1)
         return x
 
 class WeightedFocalLoss(nn.Module):
+    """
+    A custom implementation of the Weighted Focal Loss function, which is commonly used 
+    for addressing class imbalance in classification tasks. This loss function applies 
+    a modulating factor to the standard binary cross-entropy loss to focus learning on 
+    hard-to-classify examples.
+    Attributes:
+        alpha (float): A scaling factor to balance the importance of positive/negative examples.
+        gamma (float): The focusing parameter that reduces the relative loss for well-classified examples.
+        weights (torch.Tensor, optional): A tensor of weights for each class to handle class imbalance.
+    Methods:
+        forward(inputs, targets):
+            Computes the Weighted Focal Loss for the given inputs and targets.
+    Args:
+        alpha (float, optional): A scaling factor for the loss. Default is 1.
+        gamma (float, optional): The focusing parameter to adjust the rate at which easy examples are down-weighted. Default is 2.
+        weights (torch.Tensor, optional): A tensor of class weights. If provided, it is used to weight the loss for each class. Default is None.
+    Forward Args:
+        inputs (torch.Tensor): The predicted logits from the model (before applying sigmoid).
+        targets (torch.Tensor): The ground truth binary labels (0 or 1).
+    Returns:
+        torch.Tensor: The computed Weighted Focal Loss value.
+    """
+
     def __init__(self, alpha=1, gamma=2, weights=None):
+        """
+        Initializes the WeightedFocalLoss class.
+        Parameters:
+            alpha (float, optional): A scaling factor for the positive class. Default is 1.
+            gamma (float, optional): A focusing parameter to adjust the rate at which easy examples are down-weighted. Default is 2.
+            weights (torch.Tensor or None, optional): Class-specific weights to handle class imbalance. Default is None.
+        """
+
         super(WeightedFocalLoss, self).__init__()
         self.alpha = alpha
         self.gamma = gamma
         self.weights = weights
 
     def forward(self, inputs, targets):
+        """
+        Computes the forward pass for the loss function, which is a variant of the 
+        Focal Loss used for addressing class imbalance in binary classification tasks.
+        Args:
+            inputs (torch.Tensor): The predicted logits from the model. Shape: (N, *) 
+                where N is the batch size and * represents additional dimensions.
+            targets (torch.Tensor): The ground truth binary labels. Shape: (N, *), 
+                matching the shape of `inputs`.
+        Returns:
+            torch.Tensor: The computed focal loss, averaged over the batch.
+        Notes:
+            - The loss is based on the Binary Cross-Entropy (BCE) with logits, 
+              modified by a weighting factor and a focusing parameter.
+            - If `self.weights` is provided, it is used to apply class-specific 
+              weights to the loss.
+            - `self.alpha` controls the balance between positive and negative samples.
+            - `self.gamma` adjusts the focusing parameter to reduce the impact of 
+              easy-to-classify examples.
+        """
+
         BCE_loss = F.binary_cross_entropy_with_logits(inputs, targets, reduction='none')
         pt = torch.exp(-BCE_loss)
         if self.weights is not None:
@@ -865,123 +1132,44 @@ class WeightedFocalLoss(nn.Module):
 
 # Training and Validation Loop
 def train_model():
-    '''
-    process_to_index = SVGPCAPDataset.extract_unique_processes('data/svg')
-    num_processes = len(process_to_index)  # Number of unique processes
-    print(f"Number of unique processes: {num_processes}")
-    
-    # Create datasets with and without augmentation
-    start_time = time.time()
-    train_dataset = SVGPCAPDataset('data/labels.csv', 'data/svg', 'data/pcap', process_to_index=process_to_index, augment=True, noise_scale=0.1, preprocessed_dir=None)
-    elapsed_time = time.time() - start_time
-    print(f"Elapsed time for loading training dataset: {elapsed_time:.2f} seconds")
+    """
+    Trains a Graph Neural Network (GNN) model using preprocessed SVG and PCAP datasets.
+    The function performs the following steps:
+    1. Loads a pre-trained vectorizer from a pickle file.
+    2. Initializes training, validation, and test datasets using the `SVGPCAPDataset` class.
+    3. Creates DataLoaders for batching and shuffling the datasets.
+    4. Initializes the GNN model, optimizer, and loss functions.
+    5. Executes a training loop for a fixed number of epochs:
+        - Processes batches of data, including graphs and PCAP features.
+        - Computes the process loss using binary cross-entropy with logits.
+        - Computes the origin loss using cross-entropy.
+        - Combines the losses and performs backpropagation.
+        - Updates the model parameters using the optimizer.
+        - Tracks and prints the training loss for each epoch.
+    6. Validates the model after each epoch using a separate validation function.
+    Note:
+    - The model is trained on a GPU if available, otherwise on a CPU.
+    - The number of processes and other hyperparameters are hardcoded in the function.
+    - The function assumes the existence of specific file paths and preprocessed data.
+    Dependencies:
+    - PyTorch for model training and tensor operations.
+    - Custom classes and functions such as `SVGPCAPDataset`, `GNNModel`, `custom_collate_fn`, 
+      and `validate_model`.
+    Raises:
+    - FileNotFoundError: If the vectorizer file or dataset files are not found.
+    - RuntimeError: If there are issues with tensor operations or GPU availability.
+    Returns:
+    None
+    """
 
-    start_time = time.time()
-    val_dataset = SVGPCAPDataset('data/labels.csv', 'data/svg', 'data/pcap', process_to_index=process_to_index, augment=False)
-    elapsed_time = time.time() - start_time
-    print(f"Elapsed time for loading validation dataset: {elapsed_time:.2f} seconds")
-
-    # Use functools.partial to pass num_processes to custom_collate_fn
-    collate_fn = partial(custom_collate_fn)
-    
-    # Use the partial function in DataLoader
-    start_time = time.time()
-    train_dataloader = DataLoader(
-        train_dataset, 
-        batch_size=32, 
-        shuffle=True, 
-        num_workers=6, 
-        pin_memory=True,
-        collate_fn=collate_fn  # Use the partial function
-    )
-    print(f"Training dataloader size: {len(train_dataloader)}")
-    elapsed_time = time.time() - start_time
-    print(f"Elapsed time for training dataloader: {elapsed_time:.2f} seconds")
-
-    start_time = time.time()
-    val_dataloader = DataLoader(
-        val_dataset, 
-        batch_size=32, 
-        shuffle=False, 
-        num_workers=6, 
-        pin_memory=True,
-        collate_fn=collate_fn  # Use the partial function
-    )
-    print(f"Validation dataloader size: {len(val_dataloader)}")
-    elapsed_time = time.time() - start_time
-    print(f"Elapsed time for validation dataloader: {elapsed_time:.2f} seconds")
-    
-    # In train_model()
-    num_processes = len(train_dataset.process_to_index)
-    num_ips = len(train_dataset.ip_to_index)
-    svg_dim = len(train_dataset.vectorizer.get_feature_names_out())
-    model = GNNModel(
-        svg_dim=svg_dim,
-        pcap_dim=5,  # Update based on enhanced PCAP features
-        hidden_dim=128,
-        num_processes=len(train_dataset.process_to_index),
-        num_ips=len(train_dataset.ip_to_index)
-    )
-
-    # Initialize model, optimizer, and loss functions
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    model = GNNModel(svg_dim=3, pcap_dim=5, hidden_dim=128, num_processes=10, num_ips=20).to(device)
-    optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
-    criterion_process = WeightedFocalLoss()
-    criterion_origin = nn.CrossEntropyLoss()
-
-    for epoch in range(10):
-        model.train()
-        total_loss = 0
-
-        for batch in train_dataloader:
-            graph_batch, pcap_features, origin_indices, proc_indices, proc_values = batch
-            
-            origin_output, process_output = model(graph_batch, pcap_features)
-            
-            # Process loss
-            process_target = torch.sparse_coo_tensor(
-                torch.stack([torch.arange(len(proc_indices)).repeat_interleave(
-                    torch.tensor([len(indices) for indices in proc_indices])),
-                    torch.cat(proc_indices)
-                ]),
-                torch.cat(proc_values),
-                (len(proc_indices), num_processes)
-            ).to(device)
-            
-            loss_process = F.binary_cross_entropy_with_logits(
-                process_output, 
-                process_target.to_dense()
-            )
-            
-            # Origin loss
-            loss_origin = F.cross_entropy(origin_output, origin_indices)
-            
-            # Combine the losses
-            total_batch_loss = loss_process + loss_origin
-            
-            # Backpropagate the total loss
-            total_batch_loss.backward()
-            optimizer.step()
-
-            total_loss += total_batch_loss.item()
-
-        train_losses.append(total_loss / len(train_dataloader))
-        print(f"Epoch {epoch + 1}, Loss: {total_loss:.4f}")
-        torch.cuda.empty_cache()
-        validate_model(model, val_dataloader, device, val_dataset, num_processes)
-    '''
     # Load the vectorizer
     with open('data/powerset_preprocessed/vectorizer.pkl', 'rb') as f:
         vectorizer = pickle.load(f)
 
     # Create datasets
-    #train_dataset = SVGPCAPDataset('data/powerset_splits/train_files.txt', 'data/powerset_preprocessed/train/svg', 'data/powerset_preprocessed/train/pcap')
-    train_dataset = SVGPCAPDataset('data/powerset_splits/train_files.txt', 'data/powerset_preprocessed/train/svg', 'data/powerset_preprocessed/train/pcap')
-    #train_dataset.files = train_dataset.files[:100]  # Use only 100 samples
-    val_dataset = SVGPCAPDataset('data/powerset_splits/val_files.txt', 'data/powerset_preprocessed/val/svg', 'data/powerset_preprocessed/val/pcap')
-    #val_dataset.files = val_dataset.files[:30]
-    test_dataset = SVGPCAPDataset('data/powerset_splits/test_files.txt', 'data/powerset_preprocessed/test/svg', 'data/powerset_preprocessed/test/pcap')
+    train_dataset = SVGPCAPDataset('data/powerset_splits/train_files.txt', 'data/powerset_preprocessed/train/svg', 'data/powerset_preprocessed/train/pcap', preprocessed=True)
+    val_dataset = SVGPCAPDataset('data/powerset_splits/val_files.txt', 'data/powerset_preprocessed/val/svg', 'data/powerset_preprocessed/val/pcap', preprocessed=True)
+    test_dataset = SVGPCAPDataset('data/powerset_splits/test_files.txt', 'data/powerset_preprocessed/test/svg', 'data/powerset_preprocessed/test/pcap', preprocessed=True)
 
     # Create DataLoaders
     train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True, collate_fn=custom_collate_fn)
@@ -1002,13 +1190,10 @@ def train_model():
 
         for batch in train_loader:
             graph_batch, pcap_features, origin_indices, proc_indices, proc_values = batch
-            #print(f"TRAINING graph_batch.x shape: {graph_batch.x.shape}")
-            #origin_output, process_output = model(graph_batch, pcap_features)
             graph_batch = graph_batch.to(device)  # Move graph_batch to the correct device
             pcap_features = pcap_features.to(device)  # Move pcap_features to the correct device
 
             origin_output, process_output = model(graph_batch, pcap_features)
-
             
             # Process loss
             process_target = torch.sparse_coo_tensor(
@@ -1046,6 +1231,28 @@ def train_model():
 
 # Validation Function
 def validate_model(model, dataloader, device, dataset, num_processes, criterion_process, criterion_origin):
+    """
+    Validates the performance of a given model on a dataset using a dataloader.
+    Args:
+        model (torch.nn.Module): The model to be validated.
+        dataloader (torch.utils.data.DataLoader): DataLoader providing the validation data.
+        device (torch.device): The device (CPU or GPU) to run the validation on.
+        dataset (Dataset): The dataset being used for validation.
+        num_processes (int): The number of processes in the dataset.
+        criterion_process (torch.nn.Module): Loss function for process-level predictions.
+        criterion_origin (torch.nn.Module): Loss function for origin-level predictions.
+    Returns:
+        float: The average validation loss.
+    This function performs the following steps:
+    - Sets the model to evaluation mode.
+    - Iterates through the dataloader to compute predictions and losses.
+    - Computes the combined loss for process-level and origin-level predictions.
+    - Stores predictions and labels for further evaluation.
+    - Tunes thresholds for process-level predictions to maximize F1 score.
+    - Computes and prints various metrics, including precision, recall, F1 score, and ROC-AUC.
+    - Computes and prints accuracy for origin-level predictions.
+    """
+
     model.eval()
     all_origin_labels = []
     all_origin_preds = []
@@ -1057,7 +1264,6 @@ def validate_model(model, dataloader, device, dataset, num_processes, criterion_
         for batch in dataloader:
             # Unpack the batch
             graph_batch, pcap_features, origin_ips, target_process_indices, target_process_values = batch
-            #print(f"VALIDATION graph_batch.x shape: {graph_batch.x.shape}")
             # Move data to the correct device
             graph_batch = graph_batch.to(device)
             pcap_features = pcap_features.to(device)
