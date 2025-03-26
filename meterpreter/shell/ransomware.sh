@@ -3,7 +3,8 @@
 
 BASE_DIR="/home/kali/Documents"
 PASSWORD="testpassword"  # Encryption password
-EXTENSION=".enc"  # Extension for encrypted files
+EXTENSIONS=(".enc" ".locked" ".crypt")  # Possible extensions for encrypted files
+TOOLS=("openssl" "gpg" "aescrypt")  # Possible encryption tools
 
 # Ensure the base directory exists
 if [ ! -d "$BASE_DIR" ]; then
@@ -23,10 +24,24 @@ RANDOM_DIR_NAME=$(basename "$RANDOM_DIR")
 
 echo "Encrypting files in $RANDOM_DIR..."
 
+# Randomly select an encryption tool and extension
+TOOL=${TOOLS[$RANDOM % ${#TOOLS[@]}]}
+EXTENSION=${EXTENSIONS[$RANDOM % ${#EXTENSIONS[@]}]}
+
 # Encrypt each file in the selected directory
 for file in "$RANDOM_DIR"*; do
     if [ -f "$file" ]; then
-        openssl enc -aes-256-cbc -salt -in "$file" -out "${file}${EXTENSION}" -k "$PASSWORD"
+        case $TOOL in
+            "openssl")
+                openssl enc -aes-256-cbc -salt -in "$file" -out "${file}${EXTENSION}" -k "$PASSWORD"
+                ;;
+            "gpg")
+                gpg --batch --passphrase "$PASSWORD" -c -o "${file}${EXTENSION}" "$file"
+                ;;
+            "aescrypt")
+                aescrypt -e -p "$PASSWORD" -o "${file}${EXTENSION}" "$file"
+                ;;
+        esac
         rm "$file"  # Remove original file after encryption
     fi
 done
@@ -45,8 +60,18 @@ echo "Cleaning up and decrypting files in $RANDOM_DIR..."
 # Decrypt each file back to its original form
 for file in "$RANDOM_DIR"*"$EXTENSION"; do
     if [ -f "$file" ]; then
-        original_file="${file%$EXTENSION}"  # Remove .enc extension
-        openssl enc -d -aes-256-cbc -salt -in "$file" -out "$original_file" -k "$PASSWORD"
+        original_file="${file%$EXTENSION}"  # Remove extension
+        case $TOOL in
+            "openssl")
+                openssl enc -d -aes-256-cbc -salt -in "$file" -out "$original_file" -k "$PASSWORD"
+                ;;
+            "gpg")
+                gpg --batch --passphrase "$PASSWORD" -d -o "$original_file" "$file"
+                ;;
+            "aescrypt")
+                aescrypt -d -p "$PASSWORD" -o "$original_file" "$file"
+                ;;
+        esac
         rm "$file"  # Remove encrypted file after decryption
     fi
 done

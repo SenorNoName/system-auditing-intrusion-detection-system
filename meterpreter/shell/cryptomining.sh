@@ -5,7 +5,7 @@ runtime_ms=$(( RANDOM % 301 + 200 ))  # Random number between 200 and 500 millis
 start_time=$(date +%s%N)  # Start time in nanoseconds
 
 pids=()  # Array to store process IDs
-hash_algorithms=("md5sum" "sha1sum" "sha256sum")  # Possible hashing algorithms
+hash_algorithms=("md5sum" "sha1sum" "sha256sum" "sha512sum" "b2sum")  # Possible hashing algorithms
 
 while true; do
   current_time=$(date +%s%N)  # Get current time in nanoseconds
