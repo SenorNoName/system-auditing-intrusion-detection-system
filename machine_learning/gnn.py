@@ -44,6 +44,8 @@ and network traffic features from PCAP files for classification tasks. The scrip
 """
 
 import os
+import re
+import math
 import time
 import hashlib
 import argparse
@@ -65,6 +67,7 @@ from sklearn.decomposition import TruncatedSVD
 from xml.etree import ElementTree as ET
 from scapy.all import rdpcap
 import networkx as nx
+from collections import Counter
 import pickle
 from functools import partial
 from multiprocessing import Pool
@@ -74,42 +77,57 @@ from dask_ml.decomposition import TruncatedSVD
 
 def custom_collate_fn(batch):
     """
-    Custom collate function to prepare batches for a DataLoader.
-    Args:
-        batch (list of tuples): A list where each element is a tuple containing:
-            - svg_graphs (Data): Graph data object.
-            - pcap_features (Tensor): Tensor of pcap features.
-            - origin_ips (int): Origin IP address as an integer.
-            - target_process_indices (list): List of target process indices.
-            - target_process_values (list): List of target process values.
-    Returns:
-        tuple: A tuple containing:
-            - graph_batch (Batch): Batched graph data object.
-            - pcap_features (Tensor): Batched tensor of pcap features.
-            - origin_ips (Tensor): Batched tensor of origin IP addresses.
-            - target_process_indices (list): List of target process indices.
-            - target_process_values (list): List of target process values.
+    Custom collate function that handles:
+    - Filtering invalid graphs
+    - Padding variable-length PCAP sequences
+    - Creating masks for RNN
+    - Batching graphs with PyG
     """
-
     # Filter out invalid graphs
     valid_indices = [i for i, item in enumerate(batch) if item[0].num_nodes > 0]
     batch = [batch[i] for i in valid_indices]
     
     svg_graphs = [item[0] for item in batch]
-    pcap_features = torch.stack([item[1] for item in batch])
+    pcap_features = [item[1] for item in batch]
     origin_ips = torch.tensor([item[2] for item in batch], dtype=torch.long)
     target_process_indices = [item[3] for item in batch]
     target_process_values = [item[4] for item in batch]
     
-    # Batch the graphs using PyTorch Geometric's utility
+    # PCAP Feature Processing
+    # ======================
+    
+    # 1. Verify feature dimensions
+    for pcap in pcap_features:
+        assert pcap.dim() == 2, f"Expected 2D tensor, got {pcap.dim()}D"
+        assert pcap.size(1) == 106, f"Expected 106 features, got {pcap.size(1)}"
+    
+    # 2. Get sequence lengths before padding
+    lengths = torch.tensor([pcap.size(0) for pcap in pcap_features], dtype=torch.long)
+    
+    # 3. Pad sequences to max length
+    padded_pcap = torch.nn.utils.rnn.pad_sequence(
+        pcap_features,
+        batch_first=True,
+        padding_value=0.0
+    )  # [batch_size, max_len, 106]
+    
+    # 4. Create mask (1 = real data, 0 = padding)
+    max_len = padded_pcap.size(1)
+    mask = torch.arange(max_len).expand(len(lengths), max_len) < lengths.unsqueeze(1)
+    mask = mask.float()  # [batch_size, max_len]
+    
+    # Graph Processing
+    # ================
     graph_batch = Batch.from_data_list(svg_graphs)
     
     return (
-        graph_batch,
-        pcap_features,
-        origin_ips,
-        target_process_indices,
-        target_process_values
+        graph_batch,      # PyG Batch object
+        padded_pcap,      # Padded PCAP features [batch_size, max_len, 106]
+        mask,             # Sequence mask [batch_size, max_len]
+        lengths,          # Original lengths [batch_size]
+        origin_ips,       # Origin IP indices [batch_size]
+        target_process_indices,  # List of target indices
+        target_process_values    # List of target values
     )
 
 def is_connected(edge_index, num_nodes=None):
@@ -179,7 +197,13 @@ def pad_node_features(graph, max_features):
 # Command line argument for verbose output
 parser = argparse.ArgumentParser(description="Action Level Detection Transformer")
 parser.add_argument("--verbose", "-v", action="store_true", help="Enable verbose output")
-args = parser.parse_args()
+parser.add_argument("--dataset", "-d", type=str, help="Directory containing the preprocessed dataset")
+parser.add_argument("--split", "-s", type=str, help="Directory containing the preprocessed split")
+args, unknown = parser.parse_known_args()
+
+# Assign the dataset directory to the variable
+dataset = args.dataset
+split = args.split
 
 # Clear CUDA cache
 torch.backends.cudnn.benchmark = True
@@ -577,66 +601,6 @@ class SVGPCAPDataset(Dataset):
                 edge_index=torch.empty((2, 0), dtype=torch.long),
                 num_nodes=0
             )
-        
-    def extract_pcap_features(self, pcap_path):
-        """
-        Extract enhanced features from a PCAP file.
-        Parameters:
-        pcap_path (str): The file path to the PCAP file.
-        Returns:
-        list: A list of 10 features extracted from the PCAP file:
-            - Number of unique source IP addresses
-            - Number of unique destination IP addresses
-            - Number of unique source ports
-            - Number of unique destination ports
-            - Mean payload size
-            - Standard deviation of payload sizes
-            - Number of unique protocols
-            - Mean time interval between packets
-            - Standard deviation of time intervals between packets
-            - Total number of packets
-        """
-
-        packets = rdpcap(pcap_path)
-        if len(packets) == 0:
-            return [0] * 10  # Return zero features for empty PCAPs
-        
-        src_ips = set()
-        dst_ips = set()
-        src_ports = set()
-        dst_ports = set()
-        payload_sizes = []
-        protocols = set()
-        timestamps = []
-        
-        for pkt in packets:
-            if 'IP' in pkt:
-                src_ips.add(pkt['IP'].src)
-                dst_ips.add(pkt['IP'].dst)
-            if 'TCP' in pkt:
-                src_ports.add(pkt['TCP'].sport)
-                dst_ports.add(pkt['TCP'].dport)
-                payload_sizes.append(len(pkt['TCP'].payload))
-            if 'UDP' in pkt:
-                src_ports.add(pkt['UDP'].sport)
-                dst_ports.add(pkt['UDP'].dport)
-                payload_sizes.append(len(pkt['UDP'].payload))
-            protocols.add(pkt.payload.name if hasattr(pkt, 'payload') else 'unknown')
-            timestamps.append(float(pkt.time))  # Convert Scapy timestamp to float
-        
-        # Calculate temporal features
-        time_intervals = np.diff(timestamps) if len(timestamps) > 1 else np.array([0.0])
-        
-        features = [
-            len(src_ips), len(dst_ips), len(src_ports), len(dst_ports),
-            float(np.mean(payload_sizes)) if payload_sizes else 0.0,  # Convert to float
-            float(np.std(payload_sizes)) if payload_sizes else 0.0,   # Convert to float
-            len(protocols),
-            float(np.mean(time_intervals)) if len(time_intervals) > 0 else 0.0,  # Convert to float
-            float(np.std(time_intervals)) if len(time_intervals) > 0 else 0.0,   # Convert to float
-            len(packets),
-        ]
-        return features
 
     def parse_connection(self, path_element):
         """
@@ -734,32 +698,19 @@ class SVGPCAPDataset(Dataset):
         for svg_file in svg_files:
             svg_path = os.path.join(svg_dir, svg_file)
             graph = self.extract_svg_graph(svg_path)
-            torch.save(graph, os.path.join(output_dir, f"{svg_file}.pt"))
-        
-        # Process PCAP files
-        for pcap_file in pcap_files:
-            pcap_path = os.path.join(pcap_dir, pcap_file)
-            features = self.extract_pcap_features(pcap_path)
-            torch.save(features, os.path.join(output_dir, f"{pcap_file}.pt"))
+            torch.save(graph, os.path.join(f"{output_dir}/svg", f"{svg_file}.pt"))
         
         # Save vectorizer
         with open(os.path.join(output_dir, 'vectorizer.pkl'), 'wb') as f:
             pickle.dump(self.vectorizer, f)
         
         # Process PCAP files
-        pcap_output_dir = os.path.join(output_dir, 'pcap')
-        os.makedirs(pcap_output_dir, exist_ok=True)
-        for pcap_file in os.listdir(pcap_dir):
-            if pcap_file.endswith(".pcap"):
-                pcap_path = os.path.join(pcap_dir, pcap_file)
-                features = self.extract_pcap_features(pcap_path)
-                torch.save(features, os.path.join(pcap_output_dir, f"{pcap_file}.pt"))
+        self.save_pcap_sequences(pcap_files, pcap_dir, f"{output_dir}/pcap")
         
         # Save vectorizer
         with open(os.path.join(output_dir, 'vectorizer.pkl'), 'wb') as f:
             pickle.dump(self.vectorizer, f)
         
-
     def get_file_hash(self, file_path):
         """
         Computes the MD5 hash of a file.
@@ -823,47 +774,177 @@ class SVGPCAPDataset(Dataset):
             target_process_values
         )
 
-    def load_pcap_features(self, pcap_path):
-        """
-        Extracts features from a given PCAP file.
-        This method processes a PCAP file to extract network traffic features such as
-        the number of unique source IPs, destination IPs, source ports, destination ports,
-        and the average payload size of TCP packets.
-        Args:
-            pcap_path (str): The file path to the PCAP file to be processed.
-        Returns:
-            list: A list of extracted features in the following order:
-            - Number of unique source IPs
-            - Number of unique destination IPs
-            - Number of unique source ports
-            - Number of unique destination ports
-            - Average payload size of TCP packets (0 if no TCP packets are present)
-        """
+    def extract_payload(self, packet):
+        if packet.payload:
+            return bytes(packet.payload)
+        return b''
 
+    def encode_payload(self, payload):
+        # Byte-level encoding (truncate/pad to fixed size)
+        max_payload_size = 100  # Adjust as needed
+        payload_encoded = list(payload[:max_payload_size])  # Truncate to max size
+        payload_encoded += [0] * (max_payload_size - len(payload_encoded))  # Pad to max size
+        return payload_encoded
+
+    def extract_packet_features(self, pcap_path):
         packets = rdpcap(pcap_path)
-        if len(packets) == 0:
-            return [0, 0, 0, 0, 0]
-        
-        src_ips = set()
-        dst_ips = set()
-        src_ports = set()
-        dst_ports = set()
-        payload_sizes = []
-        
-        for pkt in packets:
-            if 'IP' in pkt:
-                src_ips.add(pkt['IP'].src)
-                dst_ips.add(pkt['IP'].dst)
-            if 'TCP' in pkt:
-                src_ports.add(pkt['TCP'].sport)
-                dst_ports.add(pkt['TCP'].dport)
-                payload_sizes.append(len(pkt['TCP'].payload))
-        
-        features = [
-            len(src_ips), len(dst_ips), len(src_ports), len(dst_ports),
-            np.mean(payload_sizes) if payload_sizes else 0,
-        ]
+        packet_features = []
+
+        for packet in packets:
+            features = {}
+
+            # Extract headers
+            if packet.haslayer('IP'):
+                features['src_ip'] = packet['IP'].src
+                features['dst_ip'] = packet['IP'].dst
+                features['protocol'] = packet['IP'].proto
+
+            if packet.haslayer('TCP'):
+                features['src_port'] = packet['TCP'].sport
+                features['dst_port'] = packet['TCP'].dport
+                features['tcp_flags'] = packet['TCP'].flags  # FlagValue object
+
+            if packet.haslayer('UDP'):
+                features['src_port'] = packet['UDP'].sport
+                features['dst_port'] = packet['UDP'].dport
+
+            # Extract and analyze payload
+            if packet.haslayer('Raw'):
+                payload = packet['Raw'].load
+                features['payload_analysis'] = self.analyze_payload(payload)
+
+            # Temporal features
+            features['timestamp'] = float(packet.time)
+            packet_features.append(features)
+
+        return packet_features
+
+    def preprocess_pcap_file(self, pcap_path):
+        packet_features = self.extract_packet_features(pcap_path)
+        sequences = []
+
+        for packet in packet_features:
+            # Encode headers
+            src_ip = int(packet.get('src_ip', '0.0.0.0').replace('.', ''))
+            dst_ip = int(packet.get('dst_ip', '0.0.0.0').replace('.', ''))
+            src_port = packet.get('src_port', 0)
+            dst_port = packet.get('dst_port', 0)
+            protocol = packet.get('protocol', 0)
+            flags = packet.get('flags', 0)
+
+            # Encode payload
+            payload_encoded = self.encode_payload(packet.get('payload', b''))
+
+            # Combine features into a single vector
+            feature_vector = [src_ip, dst_ip, src_port, dst_port, protocol, flags] + payload_encoded
+            sequences.append(torch.tensor(feature_vector, dtype=torch.float32))
+
+        return torch.stack(sequences)  # Convert list of tensors to a single tensor
+
+    def save_pcap_sequences(self, pcap_files, pcap_dir, output_dir):
+        os.makedirs(output_dir, exist_ok=True)
+
+        for pcap_file in pcap_files:
+            pcap_path = os.path.join(pcap_dir, pcap_file)
+            sequences = self.preprocess_pcap_file(pcap_path)
+            torch.save(sequences, os.path.join(output_dir, f"{pcap_file}.pt"))
+
+    def analyze_payload(self, payload):
+        features = {}
+
+        # If payload is empty, return empty features
+        if not payload:
+            return features
+
+        # Try to decode payload as text
+        try:
+            payload_text = payload.decode('utf-8', errors='ignore')
+            features['is_text'] = True
+        except UnicodeDecodeError:
+            payload_text = None
+            features['is_text'] = False
+
+        # Analyze text-based payloads
+        if payload_text:
+            # HTTP analysis
+            if 'HTTP' in payload_text:
+                features['protocol'] = 'HTTP'
+                http_headers = {}
+                for line in payload_text.split('\r\n'):
+                    if ':' in line:
+                        key, value = line.split(':', 1)
+                        http_headers[key.strip()] = value.strip()
+                features['http_headers'] = http_headers
+
+                # Extract URLs
+                urls = re.findall(r'https?://[^\s"]+', payload_text)
+                features['urls'] = urls
+
+            # DNS analysis
+            if payload.startswith(b'\x00\x01'):  # DNS query magic number
+                features['protocol'] = 'DNS'
+                try:
+                    dns_query = payload[12:].split(b'\x00', 1)[0].decode('utf-8', errors='ignore')
+                    features['dns_query'] = dns_query
+                except Exception as e:
+                    features['dns_query'] = None
+
+            # FTP analysis
+            if payload_text.startswith('USER') or payload_text.startswith('PASS'):
+                features['protocol'] = 'FTP'
+                features['ftp_command'] = payload_text.split('\r\n')[0]
+
+            # SMTP analysis
+            if payload_text.startswith('EHLO') or payload_text.startswith('MAIL FROM'):
+                features['protocol'] = 'SMTP'
+                features['smtp_command'] = payload_text.split('\r\n')[0]
+
+        # Analyze binary payloads
+        else:
+            features['is_binary'] = True
+
+            # Detect TLS/SSL handshake
+            if payload.startswith(b'\x16\x03'):  # TLS handshake magic number
+                features['protocol'] = 'TLS'
+                features['tls_handshake'] = True
+
+            # Detect file transfers (e.g., PDF, ZIP, etc.)
+            if payload.startswith(b'%PDF'):
+                features['file_type'] = 'PDF'
+            elif payload.startswith(b'PK'):  # ZIP file magic number
+                features['file_type'] = 'ZIP'
+            elif payload.startswith(b'\x89PNG'):  # PNG file magic number
+                features['file_type'] = 'PNG'
+
+            # Detect encrypted data (e.g., AES, RSA)
+            if len(payload) > 16 and all(32 <= byte <= 126 for byte in payload[:16]):  # ASCII range
+                features['encryption'] = 'Possible AES/RSA'
+
+        # Extract payload size
+        features['payload_size'] = len(payload)
+
+        # Extract entropy of payload (useful for detecting encrypted/compressed data)
+        if payload:
+            entropy = self.calculate_entropy(payload)
+            features['entropy'] = entropy
+
         return features
+
+    def calculate_entropy(self, data):
+        if not data:
+            return 0.0
+
+        # Count frequency of each byte
+        byte_counts = Counter(data)
+        total_bytes = len(data)
+
+        # Calculate entropy
+        entropy = 0.0
+        for count in byte_counts.values():
+            probability = count / total_bytes
+            entropy -= probability * math.log2(probability)
+
+        return entropy
     
     def augment_svg_features(self, svg_features):
         """
@@ -960,103 +1041,72 @@ class SVGPCAPDataset(Dataset):
 
 # Model Definition
 class GNNModel(nn.Module):
-    """
-    A Graph Neural Network (GNN) model that combines graph-based features and packet capture (PCAP) features
-    for classification tasks. The model uses a Graph Convolutional Network (GCN) for processing graph data
-    and a Convolutional Neural Network (CNN) for processing PCAP features.
-    Attributes:
-        conv1 (GCNConv): First graph convolutional layer.
-        conv2 (GCNConv): Second graph convolutional layer.
-        dropout (nn.Dropout): Dropout layer for regularization.
-        pcap_cnn (nn.Sequential): CNN module for processing PCAP features.
-        process_head (nn.Linear): Fully connected layer for process classification.
-        origin_head (nn.Linear): Fully connected layer for origin IP classification.
-    Methods:
-        __init__(svg_dim, pcap_dim, hidden_dim, num_processes, num_ips):
-            Initializes the GNNModel with the specified dimensions and parameters.
-        forward(graph_batch, pcap_features):
-            Performs a forward pass through the model, combining graph and PCAP features for classification.
-        pad_features(x, target_dim=1015):
-            Pads the input feature matrix to the specified target dimension if necessary.
-    """
-
     def __init__(self, svg_dim, pcap_dim, hidden_dim, num_processes, num_ips):
-        """
-        Initializes the GNN model with specified dimensions and layers.
-        Args:
-            svg_dim (int): The input feature dimension for the graph convolutional network (GCN).
-            pcap_dim (int): The input feature dimension for the packet capture (PCAP) data.
-            hidden_dim (int): The dimension of the hidden layers in the GCN and CNN.
-            num_processes (int): The number of output classes for the process classification head.
-            num_ips (int): The number of output classes for the origin IP classification head.
-        Attributes:
-            conv1 (GCNConv): The first graph convolutional layer.
-            conv2 (GCNConv): The second graph convolutional layer.
-            dropout (nn.Dropout): Dropout layer to prevent overfitting.
-            pcap_cnn (nn.Sequential): A 1D convolutional neural network for processing PCAP data.
-            process_head (nn.Linear): Fully connected layer for process classification.
-            origin_head (nn.Linear): Fully connected layer for origin IP classification.
-        """
-
         super().__init__()
+        # Graph components (unchanged)
         self.conv1 = GCNConv(svg_dim, hidden_dim)
         self.conv2 = GCNConv(hidden_dim, hidden_dim)
-        self.dropout = nn.Dropout(0.5)  # Add dropout
-        self.pcap_cnn = nn.Sequential(
-            nn.Conv1d(pcap_dim, hidden_dim, kernel_size=3, padding=1),
-            nn.ReLU(),
-            nn.MaxPool1d(kernel_size=1)
+        self.dropout = nn.Dropout(0.5)
+        
+        # Replace CNN with LSTM for PCAP processing
+        self.pcap_rnn = nn.LSTM(
+            input_size=pcap_dim,  # Number of features per timestep
+            hidden_size=hidden_dim,
+            num_layers=2,
+            batch_first=True,
+            bidirectional=True
         )
-        self.process_head = nn.Linear(hidden_dim * 2, num_processes)
-        self.origin_head = nn.Linear(hidden_dim * 2, num_ips)
+        self.rnn_dropout = nn.Dropout(0.3)
+        
+        # Output heads (modified for RNN output)
+        combined_dim = hidden_dim * 3  # Graph + bidirectional RNN
+        self.process_head = nn.Linear(combined_dim, num_processes)
+        self.origin_head = nn.Linear(combined_dim, num_ips)
 
-    def forward(self, graph_batch, pcap_features):
-        """
-        Forward pass of the model.
-        Args:
-            graph_batch (torch_geometric.data.Batch): A batch of graph data containing node features (`x`), 
-                edge indices (`edge_index`), and batch indices (`batch`).
-            pcap_features (torch.Tensor): A tensor containing features extracted from PCAP files, 
-                with shape (batch_size, num_features).
-        Returns:
-            Tuple[torch.Tensor, torch.Tensor]: A tuple containing two tensors:
-                - The output of the `origin_head` representing predictions for the origin task.
-                - The output of the `process_head` representing predictions for the process task.
-        Notes:
-            - The graph node features are padded to match the input dimension of the first convolutional layer.
-            - Two graph convolutional layers are applied to the graph data, followed by a global mean pooling operation 
-              to obtain a graph-level embedding.
-            - The PCAP features are processed using a 1D CNN and aggregated along the temporal dimension to obtain 
-              a PCAP-level embedding.
-            - The graph and PCAP embeddings are concatenated and passed through two separate heads (`origin_head` 
-              and `process_head`) for final predictions.
-        """
-
+    def forward(self, graph_batch, pcap_features, lengths=None):
+        # Graph processing (unchanged)
         graph_batch.x = self.pad_features(graph_batch.x, target_dim=self.conv1.in_channels)
-
         x = self.conv1(graph_batch.x, graph_batch.edge_index).relu()
-        x = self.dropout(x)  # Apply dropout
+        x = self.dropout(x)
         x = self.conv2(x, graph_batch.edge_index)
-        graph_embed = global_mean_pool(x, graph_batch.batch)
+        graph_embed = global_mean_pool(x, graph_batch.batch)  # [batch_size, hidden_dim]
+
+        # RNN processing with lengths
+        pcap_features = pcap_features.float()
         
-        pcap_features = pcap_features.unsqueeze(2)
-        pcap_embed = self.pcap_cnn(pcap_features).mean(dim=2)
+        if lengths is not None:
+            # Sort sequences by length (descending) for pack_padded_sequence
+            lengths = lengths.cpu()  # Move to CPU if needed
+            lengths, sort_idx = torch.sort(lengths, descending=True)
+            pcap_features = pcap_features[sort_idx]
+            
+            # Pack the sequences
+            packed_input = nn.utils.rnn.pack_padded_sequence(
+                pcap_features, 
+                lengths, 
+                batch_first=True
+            )
+            packed_output, (h_n, c_n) = self.pcap_rnn(packed_input)
+            
+            # Get the last hidden states (bidirectional concatenated)
+            last_hidden = torch.cat([h_n[-2], h_n[-1]], dim=1)  # [batch_size, hidden_dim*2]
+            
+            # Undo the sorting
+            _, unsort_idx = torch.sort(sort_idx)
+            last_hidden = last_hidden[unsort_idx]
+        else:
+            # Process without lengths (all sequences same length)
+            rnn_output, (h_n, c_n) = self.pcap_rnn(pcap_features)
+            last_hidden = torch.cat([h_n[-2], h_n[-1]], dim=1)
         
-        combined = torch.cat([graph_embed, pcap_embed], dim=1)
+        last_hidden = self.rnn_dropout(last_hidden)
+        
+        # Combine features
+        combined = torch.cat([graph_embed, last_hidden], dim=1)
+        
         return self.origin_head(combined), self.process_head(combined)
 
-    def pad_features(self, x, target_dim=1015):
-        """
-        Pads the input tensor to a specified target dimension along the second axis.
-        Args:
-            x (torch.Tensor): The input tensor of shape (batch_size, current_dim).
-            target_dim (int, optional): The desired dimension for the second axis. 
-                Defaults to 1015.
-        Returns:
-            torch.Tensor: The padded tensor of shape (batch_size, target_dim) if 
-            padding is applied, otherwise the original tensor if no padding is needed.
-        """
-
+    def pad_features(self, x, target_dim):
         if x.shape[1] < target_dim:
             pad_size = target_dim - x.shape[1]
             x = torch.cat([x, torch.zeros((x.shape[0], pad_size), device=x.device)], dim=1)
@@ -1163,13 +1213,13 @@ def train_model():
     """
 
     # Load the vectorizer
-    with open('data/powerset_preprocessed/vectorizer.pkl', 'rb') as f:
+    with open(f"{dataset}/train/vectorizer.pkl", 'rb') as f:
         vectorizer = pickle.load(f)
 
     # Create datasets
-    train_dataset = SVGPCAPDataset('data/powerset_splits/train_files.txt', 'data/powerset_preprocessed/train/svg', 'data/powerset_preprocessed/train/pcap', preprocessed=True)
-    val_dataset = SVGPCAPDataset('data/powerset_splits/val_files.txt', 'data/powerset_preprocessed/val/svg', 'data/powerset_preprocessed/val/pcap', preprocessed=True)
-    test_dataset = SVGPCAPDataset('data/powerset_splits/test_files.txt', 'data/powerset_preprocessed/test/svg', 'data/powerset_preprocessed/test/pcap', preprocessed=True)
+    train_dataset = SVGPCAPDataset(f"{split}/train_files.txt", f"{dataset}/train/svg", f"{dataset}/train/pcap", preprocessed=True)
+    val_dataset = SVGPCAPDataset(f"{split}/val_files.txt", f"{dataset}/val/svg", f"{dataset}/val/pcap", preprocessed=True)
+    test_dataset = SVGPCAPDataset(f"{split}/test_files.txt", f"{dataset}/test/svg", f"{dataset}/test/pcap", preprocessed=True)
 
     # Create DataLoaders
     train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True, collate_fn=custom_collate_fn)
@@ -1178,22 +1228,24 @@ def train_model():
 
     # Initialize model, optimizer, and loss functions
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    model = GNNModel(svg_dim=train_dataset.max_features, pcap_dim=10, hidden_dim=128, num_processes=10, num_ips=100).to(device)
+    model = GNNModel(svg_dim=train_dataset.max_features, pcap_dim=106, hidden_dim=128, num_processes=10, num_ips=100).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-5)
     criterion_process = WeightedFocalLoss()
     criterion_origin = nn.CrossEntropyLoss()
 
     # Training loop
-    for epoch in range(20):
+    for epoch in range(50):
         model.train()
         total_loss = 0
 
         for batch in train_loader:
-            graph_batch, pcap_features, origin_indices, proc_indices, proc_values = batch
+            graph_batch, pcap_features, masks, lengths, origin_indices, proc_indices, proc_values = batch
             graph_batch = graph_batch.to(device)  # Move graph_batch to the correct device
             pcap_features = pcap_features.to(device)  # Move pcap_features to the correct device
+            masks = masks.to(device)  # Move masks to the correct device
+            lengths = lengths.to(device)  # Move lengths to the correct device
 
-            origin_output, process_output = model(graph_batch, pcap_features)
+            origin_output, process_output = model(graph_batch, pcap_features, lengths)
             
             # Process loss
             process_target = torch.sparse_coo_tensor(
@@ -1262,11 +1314,14 @@ def validate_model(model, dataloader, device, dataset, num_processes, criterion_
 
     with torch.no_grad():
         for batch in dataloader:
-            # Unpack the batch
-            graph_batch, pcap_features, origin_ips, target_process_indices, target_process_values = batch
+            # Unpack the batch (include masks)
+            graph_batch, pcap_features, masks, lengths, origin_ips, target_process_indices, target_process_values = batch
+            
             # Move data to the correct device
             graph_batch = graph_batch.to(device)
             pcap_features = pcap_features.to(device)
+            masks = masks.to(device)  # Move masks to the correct device
+            lengths = lengths.to(device)  # Move lengths to the correct device
             
             # Convert origin_ips (indices) to tensor
             origin_indices = origin_ips.to(device)
@@ -1288,7 +1343,7 @@ def validate_model(model, dataloader, device, dataset, num_processes, criterion_
             process_labels = target_process_sparse.to_dense()
 
             # Get both outputs from the model
-            origin_output, process_output = model(graph_batch, pcap_features)
+            origin_output, process_output = model(graph_batch, pcap_features, lengths)
 
             # Compute process loss
             loss_process = criterion_process(process_output, process_labels)

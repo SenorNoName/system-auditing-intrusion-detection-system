@@ -89,11 +89,12 @@ def simplify_dot(input_file, output_file):
     nodes_to_remove = []
     edges_to_add = []
 
+    edges = graph.get_edges()  # Store edges in a separate list to avoid infinite loop
     for node in graph.get_nodes():
         node_name = node.get_name()
         # Find incoming and outgoing edges manually
-        in_edges = [edge for edge in graph.get_edges() if edge.get_destination() == node_name]
-        out_edges = [edge for edge in graph.get_edges() if edge.get_source() == node_name]
+        in_edges = [edge for edge in edges if edge.get_destination() == node_name]
+        out_edges = [edge for edge in edges if edge.get_source() == node_name]
 
         if len(in_edges) == 1 and len(out_edges) == 1:
             in_edge = in_edges[0]
@@ -113,8 +114,8 @@ def simplify_dot(input_file, output_file):
     for node in graph.get_nodes():
         node_name = node.get_name()
         # Find incoming and outgoing edges manually
-        in_edges = [edge for edge in graph.get_edges() if edge.get_destination() == node_name]
-        out_edges = [edge for edge in graph.get_edges() if edge.get_source() == node_name]
+        in_edges = [edge for edge in edges if edge.get_destination() == node_name]
+        out_edges = [edge for edge in edges if edge.get_source() == node_name]
 
         if not in_edges and not out_edges:
             nodes_to_remove.append(node_name)

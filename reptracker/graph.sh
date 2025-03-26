@@ -44,5 +44,7 @@ do
         rm "${destination}/${base_name}.svg"
         timeout_files+=("$base_name")
         continue
+    else
+        echo "Graph $base_name processed successfully"
     fi
 done
