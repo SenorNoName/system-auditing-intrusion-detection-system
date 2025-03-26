@@ -1,5 +1,32 @@
 #!/bin/bash
-# Encrypt files in a randomly chosen directory inside /home/kali/Documents and then decrypt them for cleanup
+
+# ransomware.sh - A simple ransomware script for educational purposes.
+# This script performs the following operations:
+# 1. Randomly selects a directory within a specified base directory.
+# 2. Encrypts all files in the selected directory using a randomly chosen encryption tool.
+# 3. Creates a ransom note in the selected directory.
+# 4. Decrypts the files back to their original state and removes the ransom note.
+
+# Variables:
+# - BASE_DIR: The base directory containing subdirectories to be processed.
+# - PASSWORD: The password used for encryption and decryption.
+# - EXTENSIONS: A list of possible file extensions for encrypted files.
+# - TOOLS: A list of possible encryption tools to use.
+
+# Steps:
+# 1. Check if the base directory exists. Exit if it does not.
+# 2. Get a list of subdirectories within the base directory. Exit if no subdirectories are found.
+# 3. Randomly select a subdirectory and an encryption tool/extension.
+# 4. Encrypt each file in the selected directory using the chosen tool and extension.
+# 5. Remove the original files after encryption.
+# 6. Create a ransom note in the selected directory.
+# 7. Decrypt the encrypted files back to their original state.
+# 8. Remove the encrypted files and the ransom note after decryption.
+# 9. Print status messages to indicate progress and completion.
+
+# Note:
+# - This script is for educational purposes only and should not be used for malicious activities.
+# - Ensure that the required encryption tools (openssl, gpg, aescrypt) are installed on the system.
 
 BASE_DIR="/home/kali/Documents"
 PASSWORD="testpassword"  # Encryption password
@@ -52,7 +79,6 @@ echo "Files in '$RANDOM_DIR_NAME' have been encrypted. Send 1 BTC to unlock." > 
 
 echo "Encryption complete. Ransom note placed in $RANDOM_DIR."
 
-# Simulating time delay before cleanup (adjust as needed)
 sleep 1
 
 echo "Cleaning up and decrypting files in $RANDOM_DIR..."

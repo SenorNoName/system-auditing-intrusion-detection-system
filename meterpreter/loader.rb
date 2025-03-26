@@ -1,3 +1,46 @@
+# This script is a custom Metasploit post-exploitation module designed to handle
+# the execution of multiple Meterpreter scripts in a loop, while also performing
+# packet capture and system call auditing on the target machine.
+#
+# Class: Metasploit3
+# Inherits from: Msf::Post
+#
+# Description:
+# - The module allows users to specify a list of scripts (via the SCRIPT_NAME option)
+#   and the number of iterations (via the ITERATION_COUNT option) to execute them.
+# - It also integrates with tools like `dumpcap` for packet capture and `sysdig` for
+#   system call auditing, saving the output to specified file paths.
+#
+# Options:
+# - SCRIPT_NAME (String): The name of the script(s) to run, separated by underscores.
+#   Example: "script1_script2_script3".
+# - ITERATION_COUNT (Integer): The number of iterations to run the specified scripts.
+#
+# Key Features:
+# - Executes multiple Meterpreter scripts in sequence.
+# - Captures network packets using `dumpcap` and saves them as `.pcap` files.
+# - Logs system call events using `sysdig` and saves them as `.txt` files.
+# - Handles errors gracefully and provides detailed status updates.
+# - Ensures proper cleanup by terminating background processes and setting file permissions.
+#
+# Commands:
+# - `dumpcap`: Used for capturing network packets.
+# - `sysdig`: Used for auditing system calls based on specific filters.
+# - `pkill`: Used to terminate `dumpcap` and `sysdig` processes after execution.
+# - `chmod`: Used to set appropriate permissions for the generated files.
+# - `sed`: Updates environment variables to mark the process as complete.
+#
+# Usage:
+# - Configure the SCRIPT_NAME and ITERATION_COUNT options in the Metasploit datastore.
+# - Run the module to execute the specified scripts and perform packet capture and auditing.
+#
+# Note:
+# - Ensure that the required tools (`dumpcap` and `sysdig`) are installed and accessible
+#   on the target machine.
+# - The module is designed for Linux-based platforms and requires a Meterpreter session.
+#
+# Author:
+# - Ian Johnson
 
 require 'msf/core'
 
@@ -7,7 +50,7 @@ class Metasploit3 < Msf::Post
     super(update_info(info,
       'Name'           => 'Loader Script',
       'Description'    => 'Handles running custom scripts with iterations',
-      'Author'         => 'Your Name',
+      'Author'         => 'Ian Johnson',
       'Platform'       => ['linux'],
       'SessionTypes'   => ['meterpreter']
     ))
@@ -24,10 +67,8 @@ class Metasploit3 < Msf::Post
     # Fetch the script name and iteration count from datastore
     combined = datastore['SCRIPT_NAME']
     scripts = combined.split("_")
-    #print_error("Scripts array after split: #{scripts.inspect}")
     iteration_count = datastore['ITERATION_COUNT']
 
-    # Add debugging output to verify values
     print_status("Loader script started with SCRIPT_NAME=#{combined} and ITERATION_COUNT=#{iteration_count}")
 
     # Validate arguments
@@ -50,9 +91,6 @@ class Metasploit3 < Msf::Post
     dumpcap_result = cmd_exec(dumpcap_command)
     sysdig_result = cmd_exec(sysdig_command)
 
-    # Running the Meterpreter script
-    # print_status("Running Meterpreter script #{script}.rb ...")
-
     # Loop through each script in the list
     scripts.each do |script|
         begin
@@ -65,7 +103,6 @@ class Metasploit3 < Msf::Post
                 print_error("Error while running #{script}.rb: #{e.message}")
         end
     end
-
 
     # Check if dumpcap was successful
     if dumpcap_result.include?("error")
@@ -89,7 +126,6 @@ class Metasploit3 < Msf::Post
     print_good("Iteration #{iteration_count}/500 for #{combined}.rb completed.")
 
    cmd_exec("sudo sed -i 's/^COMPLETE=.*/COMPLETE=1/' /etc/environment")
-   #cmd_exec("source /etc/environment")
   end
 
 end

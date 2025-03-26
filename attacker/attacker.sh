@@ -1,5 +1,50 @@
 #!/bin/bash
 
+# attacker.sh
+#
+# This script automates the execution of various attack simulations by generating
+# combinations of predefined scripts, assigning random IP addresses, and executing
+# them in a controlled loop. It also handles IP address cleanup and ensures proper
+# resource management between iterations.
+#
+# Features:
+# - Generates the powerset of predefined attack scripts to simulate different combinations.
+# - Dynamically assigns and cleans up IP addresses for each iteration.
+# - Updates a specific configuration file (backup.sh) with a new IP address when required.
+# - Ensures reliable execution by retrying failed operations and cleaning up resources.
+#
+# Components:
+# 1. **scripts**: Array containing the names of attack scripts located in the "custom/" directory.
+# 2. **powerset()**: Function to generate all possible subsets of the `scripts` array.
+# 3. **cleanup()**: Function to remove assigned IP addresses and routes after each iteration.
+# 4. **Main Loop**:
+#    - Iterates 500 times (from 500 to 1000).
+#    - Randomly selects a subset of attack scripts to execute.
+#    - Dynamically assigns a new IP address using `ipgen.sh`.
+#    - Updates the `REMOTE_HOST` variable in `backup.sh` if "exfiltration" is selected.
+#    - Executes `sender.sh` in a retry loop until it succeeds.
+#    - Passes the selected scripts, iteration number, and IP address to `meterpreter.sh`.
+#    - Cleans up IP addresses and routes after each iteration.
+#    - Adds a delay between iterations to free up resources.
+#
+# Prerequisites:
+# - Ensure `ipgen.sh`, `sender.sh`, and `meterpreter.sh` are executable and in the same directory.
+# - The `backup.sh` file must exist at `/home/kali/Documents/backup.sh`.
+# - Sufficient permissions to modify network configurations (requires `sudo`).
+#
+# Usage:
+# Run the script in a bash shell with appropriate permissions:
+#   ./attacker.sh
+#
+# Notes:
+# - The script assumes a specific network configuration (e.g., `eth0` interface).
+# - Modify the `scripts` array to include the names of all attack scripts in the "custom/" directory.
+# - Ensure the `backup.sh` file's format matches the expected structure for `sed` to work correctly.
+#
+# Warning:
+# This script is intended for educational or testing purposes in a controlled environment.
+# Do not use this script for malicious purposes or on unauthorized systems.
+
 # Array of scripts in the "custom/" directory
 scripts=("cryptomining" "exfiltration" "ransomware" "keylogger")  # Add all your script names here
 
@@ -38,11 +83,10 @@ cleanup() {
 }
 
 # Loop for 1000 iterations
-for ((i = 500; i <= 1000; i++)); do
+for ((i = 0; i <= 1000; i++)); do
     # Randomly choose an element from the powerset
     random_index=$((RANDOM % ${#powerset_scripts[@]}))
     selected_scripts=(${powerset_scripts[$random_index]})
-    #scr=$(echo "${selected_scripts}" | tr -d '{}' | tr ' ' ',')
 
     echo "Starting iteration $i with scripts: ${selected_scripts}"
 
@@ -90,7 +134,6 @@ for ((i = 500; i <= 1000; i++)); do
         exit 1
     fi
 
-    # Add a delay between iterations to allow resources to free up
     sleep 2
 
     echo "All scripts completed for iteration $i"

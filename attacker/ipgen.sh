@@ -1,5 +1,32 @@
 #!/bin/bash
 
+# ipgen.sh
+# 
+# This script generates a random valid IP address within a specific range.
+# It ensures that the generated IP address is not in any reserved or invalid ranges.
+
+# Functions:
+# 1. is_reserved_ip(ip):
+#    - Checks if the given IP address is in a reserved range.
+#    - Reserved ranges include:
+#      - Loopback addresses (127.0.0.0/8)
+#      - Link-local addresses (169.254.0.0/16)
+#      - Private network ranges:
+#        - 172.16.0.0/12
+#        - 192.168.0.0/16
+#      - Multicast addresses (224.0.0.0/4)
+#      - Any IP with the fourth octet equal to 28.
+#    - Returns 1 if the IP is reserved, otherwise returns 0.
+
+# 2. generate_ip():
+#    - Generates a random IP address in the 192.168.0.0/16 range.
+#    - Ensures the fourth octet is between 1 and 254 (excluding 0 and 255).
+#    - Validates the generated IP using the is_reserved_ip function.
+#    - Outputs a valid, non-reserved IP address.
+
+# Usage:
+# Run the script to generate and print a valid IP address.
+
 # Function to check if the IP is in a reserved range
 is_reserved_ip() {
     local ip=$1

