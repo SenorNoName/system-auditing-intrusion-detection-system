@@ -7,6 +7,6 @@ while true; do
         echo "Receiver script succeeded!"
     else
         echo "Receiver script failed. Retrying..."
-	sleep 5
+	sleep 2
     fi
 done
