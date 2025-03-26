@@ -4,7 +4,7 @@
 ATTACKER_SCRIPT="./attacker.sh"
 
 # Initialize variables
-ITERATION=2526
+ITERATION=1
 IP="0.0.0.0"
 
 # Infinite loop to keep running the script
