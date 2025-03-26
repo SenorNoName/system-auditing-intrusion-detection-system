@@ -1,3 +1,4 @@
+
 require 'msf/core'
 
 class Metasploit3 < Msf::Post
@@ -21,22 +22,24 @@ class Metasploit3 < Msf::Post
 
   def run
     # Fetch the script name and iteration count from datastore
-    script = datastore['SCRIPT_NAME']
+    combined = datastore['SCRIPT_NAME']
+    scripts = combined.split("_")
+    #print_error("Scripts array after split: #{scripts.inspect}")
     iteration_count = datastore['ITERATION_COUNT']
 
     # Add debugging output to verify values
-    print_status("Loader script started with SCRIPT_NAME=#{script} and ITERATION_COUNT=#{iteration_count}")
+    print_status("Loader script started with SCRIPT_NAME=#{combined} and ITERATION_COUNT=#{iteration_count}")
 
     # Validate arguments
-    if script.nil? || iteration_count.nil?
+    if scripts.nil? || iteration_count.nil?
       print_error("Missing SCRIPT_NAME or ITERATION_COUNT.")
       return
     end
 
     # Define the victim's path for the dumpcap binary
     dumpcap_path = "/usr/bin/dumpcap"
-    pcap_file_path = "/home/kali/meterpreter/pcap/#{script}_#{iteration_count}.pcap"
-    sysdig_file_path = "/home/kali/meterpreter/sysdig/#{script}_#{iteration_count}.txt"
+    pcap_file_path = "/home/kali/meterpreter/pcap/#{combined}_#{iteration_count}.pcap"
+    sysdig_file_path = "/home/kali/meterpreter/sysdig/#{combined}_#{iteration_count}.txt"
 
     # Define the commands to run dumpcap and sysdig
     dumpcap_command = "sudo nohup #{dumpcap_path} -i eth0 -w #{pcap_file_path} > /dev/null 2>&1 &"
@@ -48,16 +51,21 @@ class Metasploit3 < Msf::Post
     sysdig_result = cmd_exec(sysdig_command)
 
     # Running the Meterpreter script
-    print_status("Running Meterpreter script #{script}.rb ...")
+    # print_status("Running Meterpreter script #{script}.rb ...")
 
-    begin
-      # Attempt to run the specified script
-      session.run_cmd("run custom/#{script}.rb")
-      print_status("#{script}.rb executed successfully.")
-    rescue => e
-      # If an error occurs, print the error message
-      print_error("Error while running #{script}.rb: #{e.message}")
+    # Loop through each script in the list
+    scripts.each do |script|
+        begin
+                # Attempt to run the specified script
+                print_status("Running Meterpreter script #{script}.rb ...")
+		session.run_cmd("run custom/#{script}.rb")
+                print_status("#{script}.rb executed successfully.")
+        rescue => e
+                # If an error occurs, print the error message
+                print_error("Error while running #{script}.rb: #{e.message}")
+        end
     end
+
 
     # Check if dumpcap was successful
     if dumpcap_result.include?("error")
@@ -78,7 +86,7 @@ class Metasploit3 < Msf::Post
     cmd_exec("pkill -f dumpcap")
     cmd_exec("sudo chmod 0644 #{pcap_file_path}")
 
-    print_good("Iteration #{iteration_count}/500 for #{script}.rb completed.")
+    print_good("Iteration #{iteration_count}/500 for #{combined}.rb completed.")
 
    cmd_exec("sudo sed -i 's/^COMPLETE=.*/COMPLETE=1/' /etc/environment")
    #cmd_exec("source /etc/environment")
